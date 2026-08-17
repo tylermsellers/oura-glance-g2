@@ -9,6 +9,12 @@ A G2 smart glasses app built with [even-toolkit](https://www.npmjs.com/package/e
 - Imperial/Metric unit toggle (distance and temperature deviation)
 - Modern iOS-style companion phone app for managing your Oura token and unit preference
 
+## Screenshots
+
+| Home | Activity | Sleep | Readiness |
+|---|---|---|---|
+| ![Home](screenshots/home.png) | ![Activity](screenshots/activity.png) | ![Sleep](screenshots/sleep.png) | ![Readiness](screenshots/readiness.png) |
+
 ## Development
 
 ```bash
