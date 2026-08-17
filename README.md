@@ -24,7 +24,11 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 npx @evenrealities/evenhub-simulator@latest http://localhost:5173
 ```
 
-## Sideload to your glasses (QR code, no store review)
+## Install without any local dev server or shared Wi-Fi
+
+Grab the latest packaged build from [**GitHub Releases**](https://github.com/tylermsellers/oura-glance-g2/releases/latest) — download the `oura-glance-g2.ehpk` asset directly to your phone, then use the Even Realities app's sideload/developer-install option to import it. The app runs entirely from the installed bundle plus the hosted Cloudflare Worker API proxy — no PC, no dev server, no shared network required.
+
+## Sideload while developing (QR code)
 
 With `npm run dev` running, generate a QR code pointing at your local dev server:
 
@@ -32,7 +36,7 @@ With `npm run dev` running, generate a QR code pointing at your local dev server
 npx evenhub qr
 ```
 
-Scan the QR code with the Even Realities companion app on your phone (same Wi-Fi network as your dev machine). The app loads onto your G2 glasses with hot reload — no store submission needed. This is the fastest way to try the app or share a build with testers.
+Scan the QR code with the Even Realities companion app on your phone (same Wi-Fi network as your dev machine). The app loads onto your G2 glasses with hot reload. This is only for local development/testing — it requires the dev server to stay running and both devices on the same network.
 
 ## Build & Package for Even Hub
 
@@ -43,8 +47,8 @@ npx @evenrealities/evenhub-cli pack app.json dist -o oura-glance-g2.ehpk
 
 This produces `oura-glance-g2.ehpk`, which can be distributed two ways:
 
-1. **Direct sideload** — share the `.ehpk` file directly (e.g. as a GitHub release asset) for manual import into the Even Realities app's developer/sideload flow. No review required.
-2. **Official Even Hub store** — submit the `.ehpk` through the [Even Hub developer portal](https://hub.evenrealities.com/docs/ship/app-submission) for review and public listing.
+1. **Direct sideload (current)** — attach the `.ehpk` file to a [GitHub Release](https://github.com/tylermsellers/oura-glance-g2/releases) for manual import into the Even Realities app's developer/sideload flow. No review required — see "Install" above.
+2. **Official Even Hub store (planned)** — submit the `.ehpk` through the [Even Hub developer portal](https://hub.evenrealities.com/docs/ship/app-submission) for review and public listing, giving users a one-tap install from the official catalog.
 
 ## Configuration
 
