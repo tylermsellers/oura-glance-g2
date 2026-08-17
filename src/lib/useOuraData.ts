@@ -6,11 +6,15 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000 // Oura data updates a few times/day; 5 m
 
 const EMPTY: OuraData = {
   readinessScore: null,
+  sleepScore: null,
   activityScore: null,
   resilienceLevel: null,
   activeCalories: null,
   totalCalories: null,
   steps: null,
+  readinessDetail: null,
+  sleepDetail: null,
+  activityDetail: null,
   connected: false,
   error: null,
 }

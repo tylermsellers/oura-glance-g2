@@ -3,7 +3,7 @@
 // Auth: Personal Access Token (Bearer) generated at https://cloud.ouraring.com/personal-access-tokens
 
 const STORAGE_KEY = 'oura_glance_config'
-const API_BASE = 'https://api.ouraring.com/v2/usercollection'
+const API_BASE = 'https://oura-glance-proxy.tylermsellers.workers.dev/v2/usercollection'
 
 export interface OuraConfig {
   token: string
@@ -27,8 +27,26 @@ export function clearOuraConfig() {
   localStorage.removeItem(STORAGE_KEY)
 }
 
+// Format a Date as YYYY-MM-DD using LOCAL time (not UTC) — Oura's "day" is the
+// user's local calendar day, so using toISOString() (UTC) can shift by a day
+// depending on the user's timezone, which was causing "yesterday's" data to
+// appear as "today's".
+function toLocalIso(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toLocalIso(new Date())
+}
+
+/** Pick the record matching today's local date; fall back to the most recent
+ *  record in the window if today hasn't synced yet. */
+function pickForToday<T extends { day?: string }>(records: T[]): T | undefined {
+  const today = todayIso()
+  return records.find((r) => r.day === today) ?? records.at(-1)
 }
 
 async function fetchCollection(token: string, path: string, startDate: string, endDate: string) {
@@ -42,38 +60,151 @@ async function fetchCollection(token: string, path: string, startDate: string, e
   return res.json() as Promise<{ data: any[] }>
 }
 
+export interface ReadinessDetail {
+  hrvBalanceScore: number | null
+  restingHeartRate: number | null // bpm, raw
+  bodyTemperatureDeviation: number | null // °C deviation from baseline, raw
+  averageHrv: number | null // ms, raw
+  recoveryIndexScore: number | null
+  sleepBalanceScore: number | null
+  activityBalanceScore: number | null
+  previousDayActivityScore: number | null
+  previousNightScore: number | null
+}
+
+export interface SleepDetail {
+  totalSleepMinutes: number | null // raw
+  efficiencyPercent: number | null // raw
+  latencyMinutes: number | null // raw
+  remSleepMinutes: number | null // raw
+  deepSleepMinutes: number | null // raw
+  lightSleepMinutes: number | null // raw
+  awakeMinutes: number | null // raw
+  timingScore: number | null
+  restlessPeriods: number | null // raw
+}
+
+export interface ActivityDetail {
+  highActivityMinutes: number | null // raw
+  mediumActivityMinutes: number | null // raw
+  lowActivityMinutes: number | null // raw
+  sedentaryMinutes: number | null // raw
+  restingMinutes: number | null // raw
+  equivalentWalkingDistanceMeters: number | null // raw
+  metersToTarget: number | null // raw
+  targetCalories: number | null // raw, daily activity calorie goal
+  targetMeters: number | null // raw, daily activity distance goal
+  meetDailyTargetsScore: number | null
+  moveEveryHourScore: number | null
+  recoveryTimeScore: number | null
+  stayActiveScore: number | null
+  trainingFrequencyScore: number | null
+  trainingVolumeScore: number | null
+}
+
 export interface OuraFetchResult {
   readinessScore: number | null
+  sleepScore: number | null
   activityScore: number | null
   resilienceLevel: string | null
   activeCalories: number | null
   totalCalories: number | null
   steps: number | null
+  readinessDetail: ReadinessDetail | null
+  sleepDetail: SleepDetail | null
+  activityDetail: ActivityDetail | null
+}
+
+function secondsToMinutes(v: number | null | undefined): number | null {
+  if (v === null || v === undefined) return null
+  return Math.round(v / 60)
 }
 
 export async function fetchOuraData(token: string): Promise<OuraFetchResult> {
   // Use a small window so we reliably get "today" even if it hasn't
   // finished processing yet (falls back to most recent available day).
-  const end = todayIso()
-  const start = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Oura's end_date appears to be treated as exclusive/cutoff for "today", so
+  // request one day past today to make sure today's (partial) record is
+  // actually included in the response.
+  const end = toLocalIso(new Date(Date.now() + 24 * 60 * 60 * 1000))
+  const start = toLocalIso(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000))
 
-  const [readiness, activity, resilience] = await Promise.all([
+  const [readiness, sleep, activity, resilience, sleepPeriods] = await Promise.all([
     fetchCollection(token, 'daily_readiness', start, end),
+    fetchCollection(token, 'daily_sleep', start, end),
     fetchCollection(token, 'daily_activity', start, end),
     fetchCollection(token, 'daily_resilience', start, end),
+    fetchCollection(token, 'sleep', start, end),
   ])
 
-  const latestReadiness = readiness.data.at(-1)
-  const latestActivity = activity.data.at(-1)
-  const latestResilience = resilience.data.at(-1)
+  const latestReadiness = pickForToday(readiness.data)
+  const latestSleep = pickForToday(sleep.data)
+  const latestActivity = pickForToday(activity.data)
+  const latestResilience = pickForToday(resilience.data)
+  // Prefer the longest/main sleep period matching the same day as latestSleep
+  // (the actual night's sleep, not a nap logged on a different day).
+  const sleepCandidates = sleepPeriods.data.filter((p) => p.type === 'long_sleep' || p.type === 'sleep')
+  const latestSleepPeriod = latestSleep
+    ? sleepCandidates.filter((p) => p.day === latestSleep.day).at(-1) ?? sleepCandidates.at(-1)
+    : sleepCandidates.at(-1)
+
+  const rc = latestReadiness?.contributors
+  const sc = latestSleep?.contributors
+  const ac = latestActivity?.contributors
 
   return {
     readinessScore: latestReadiness?.score ?? null,
+    sleepScore: latestSleep?.score ?? null,
     activityScore: latestActivity?.score ?? null,
     resilienceLevel: latestResilience?.level ?? null,
     activeCalories: latestActivity?.active_calories ?? null,
     totalCalories: latestActivity?.total_calories ?? null,
     steps: latestActivity?.steps ?? null,
+    readinessDetail: rc
+      ? {
+          hrvBalanceScore: rc.hrv_balance ?? null,
+          restingHeartRate: latestSleepPeriod?.lowest_heart_rate ?? null,
+          bodyTemperatureDeviation: latestReadiness?.temperature_deviation ?? null,
+          averageHrv: latestSleepPeriod?.average_hrv ?? null,
+          recoveryIndexScore: rc.recovery_index ?? null,
+          sleepBalanceScore: rc.sleep_balance ?? null,
+          activityBalanceScore: rc.activity_balance ?? null,
+          previousDayActivityScore: rc.previous_day_activity ?? null,
+          previousNightScore: rc.previous_night ?? null,
+        }
+      : null,
+    sleepDetail: sc
+      ? {
+          totalSleepMinutes: secondsToMinutes(latestSleepPeriod?.total_sleep_duration),
+          efficiencyPercent: latestSleepPeriod?.efficiency ?? null,
+          latencyMinutes: secondsToMinutes(latestSleepPeriod?.latency),
+          remSleepMinutes: secondsToMinutes(latestSleepPeriod?.rem_sleep_duration),
+          deepSleepMinutes: secondsToMinutes(latestSleepPeriod?.deep_sleep_duration),
+          lightSleepMinutes: secondsToMinutes(latestSleepPeriod?.light_sleep_duration),
+          awakeMinutes: secondsToMinutes(latestSleepPeriod?.awake_time),
+          timingScore: sc.timing ?? null,
+          restlessPeriods: latestSleepPeriod?.restless_periods ?? null,
+        }
+      : null,
+    activityDetail: ac
+      ? {
+          highActivityMinutes: secondsToMinutes(latestActivity?.high_activity_time),
+          mediumActivityMinutes: secondsToMinutes(latestActivity?.medium_activity_time),
+          lowActivityMinutes: secondsToMinutes(latestActivity?.low_activity_time),
+          sedentaryMinutes: secondsToMinutes(latestActivity?.sedentary_time),
+          restingMinutes: secondsToMinutes(latestActivity?.resting_time),
+          equivalentWalkingDistanceMeters: latestActivity?.equivalent_walking_distance ?? null,
+          metersToTarget: latestActivity?.meters_to_target ?? null,
+          targetCalories: latestActivity?.target_calories ?? null,
+          targetMeters: latestActivity?.target_meters ?? null,
+          meetDailyTargetsScore: ac.meet_daily_targets ?? null,
+          moveEveryHourScore: ac.move_every_hour ?? null,
+          recoveryTimeScore: ac.recovery_time ?? null,
+          stayActiveScore: ac.stay_active ?? null,
+          trainingFrequencyScore: ac.training_frequency ?? null,
+          trainingVolumeScore: ac.training_volume ?? null,
+        }
+      : null,
   }
 }
 

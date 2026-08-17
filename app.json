@@ -11,7 +11,7 @@
       "name": "network",
       "desc": "This app needs to access the network to fetch your Oura readiness, activity, and resilience data.",
       "whitelist": [
-        "https://api.ouraring.com"
+        "https://oura-glance-proxy.tylermsellers.workers.dev"
       ]
     }
   ],
