@@ -14,7 +14,7 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     if (!oura.connected && !oura.error) {
       return {
         lines: [
-          ...glassHeader('OURA GLANCE'),
+          ...glassHeader('OURA'),
           line(''),
           line('Not configured'),
           line('Open app on phone to'),
@@ -26,7 +26,7 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     if (oura.error) {
       return {
         lines: [
-          ...glassHeader('OURA GLANCE', '! ERROR'),
+          ...glassHeader('OURA', '! ERROR'),
           line(''),
           line('Connection error:'),
           line(oura.error.slice(0, 40)),
@@ -36,7 +36,7 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
 
     return {
       lines: [
-        ...glassHeader('OURA GLANCE'),
+        ...glassHeader('OURA'),
         line(`Readiness   ${scoreLabel(oura.readinessScore)}`),
         line(`Activity    ${scoreLabel(oura.activityScore)}`),
         line(`Resilience  ${oura.resilienceLevel ?? '--'}`),

@@ -46,7 +46,7 @@ export function AppGlasses() {
     toDisplayData,
     onGlassAction: handleGlassAction,
     deriveScreen,
-    appName: 'OURA GLANCE G2',
+    appName: 'OURA',
     splash: appSplash,
     getPageMode: (screen) => screen === 'home' ? 'home' : 'text',
     homeImageTiles: homeTiles,

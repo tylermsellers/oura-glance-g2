@@ -9,7 +9,7 @@ export function renderSplash(ctx: CanvasRenderingContext2D, w: number, h: number
   ctx.fillStyle = fg
   ctx.font = `bold ${14 * s}px "Courier New", monospace`
   ctx.textAlign = 'center'
-  ctx.fillText('OURA GLANCE G2', cx, 50 * s)
+  ctx.fillText('OURA', cx, 50 * s)
   ctx.textAlign = 'left'
 }
 
