@@ -2,7 +2,7 @@
   "package_id": "com.tylermsellers.ouraglanceg2",
   "edition": "202601",
   "name": "Oura",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "min_app_version": "2.2.7",
   "min_sdk_version": "0.0.13",
   "entrypoint": "index.html",
@@ -11,7 +11,8 @@
       "name": "network",
       "desc": "This app needs to access the network to fetch your Oura readiness, activity, and resilience data.",
       "whitelist": [
-        "https://oura-glance-proxy.tylermsellers.workers.dev"
+        "https://oura-glance-proxy.tylermsellers.workers.dev",
+        "https://react.dev"
       ]
     }
   ],
