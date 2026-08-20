@@ -13,8 +13,7 @@
       "whitelist": [
         "https://oura-glance-proxy.tylermsellers.workers.dev",
         "https://cloud.ouraring.com",
-        "https://api.ouraring.com",
-        "https://react.dev"
+        "https://api.ouraring.com"
       ]
     }
   ],
