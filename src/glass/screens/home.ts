@@ -22,9 +22,9 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
         lines: [
           ...glassHeader('OURA'),
           line(''),
-          line('Not configured'),
+          line('Not connected'),
           line('Open app on phone to'),
-          line('add your Oura token'),
+          line('connect with Oura'),
         ],
       }
     }
