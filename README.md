@@ -24,7 +24,7 @@ Oura Glance isn't listed on the official Even Hub store yet, so it's distributed
 
 The app runs entirely from the installed bundle plus a hosted Cloudflare Worker API proxy — no PC, dev server, or shared Wi-Fi network required after install.
 
-Once installed, open the app on your phone and paste an [Oura Personal Access Token](https://cloud.ouraring.com/personal-access-tokens) into the Connection section. The token is stored locally on-device only.
+Once installed, open the app on your phone and tap **Connect with Oura** in the Connection section. This opens Oura's sign-in/consent page in your browser; approve access and return to the app — it finishes connecting automatically. (Oura retired Personal Access Tokens, so this OAuth2 flow is now the only supported auth method.)
 
 ## Development
 

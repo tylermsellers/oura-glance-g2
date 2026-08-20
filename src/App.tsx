@@ -7,7 +7,6 @@ import {
   SectionHeader,
   SettingsGroup,
   Card,
-  Input,
   Button,
   ListItem,
   Badge,
@@ -17,6 +16,7 @@ import {
 } from 'even-toolkit/web'
 import { AppGlasses } from './glass/AppGlasses'
 import { loadOuraConfig, saveOuraConfig, clearOuraConfig, testOuraConnection } from './lib/oura'
+import { beginOuraOAuth } from './lib/ouraAuth'
 import { useOuraData } from './lib/useOuraData'
 import { loadUnitSystem, saveUnitSystem, formatHoursMinutes, formatDistance, formatTempDeviation, type UnitSystem } from './lib/units'
 
@@ -96,18 +96,17 @@ function formatDetailValue(key: string, value: number | null, units: UnitSystem)
 type MetricKey = 'readiness' | 'sleep' | 'activity'
 
 function Home() {
-  const [token, setToken] = useState('')
+  const [connected, setConnected] = useState(false)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [testing, setTesting] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<MetricKey | null>(null)
   const [units, setUnits] = useState<UnitSystem>('metric')
   const oura = useOuraData()
 
   useEffect(() => {
     const config = loadOuraConfig()
-    if (config) {
-      setToken(config.token)
-    }
+    setConnected(!!config)
     setUnits(loadUnitSystem())
   }, [])
 
@@ -117,24 +116,41 @@ function Home() {
     saveUnitSystem(next)
   }
 
-  async function handleSave() {
-    if (!token) {
-      setStatus({ ok: false, message: 'Enter your Oura personal access token first.' })
-      return
+  async function handleConnect() {
+    setStatus(null)
+    setAuthorizeUrl(null)
+    setConnecting(true)
+    try {
+      const handle = await beginOuraOAuth()
+      setAuthorizeUrl(handle.authorizeUrl)
+      setStatus({ ok: true, message: 'Waiting for you to finish authorizing in your browser…' })
+      const tokens = await handle.result
+      const config = {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: Date.now() + tokens.expiresIn * 1000,
+      }
+      saveOuraConfig(config)
+      setConnected(true)
+      setAuthorizeUrl(null)
+      setStatus({ ok: true, message: 'Connected. Testing connection…' })
+      const result = await testOuraConnection(config)
+      setStatus(result)
+    } catch (err) {
+      setStatus({ ok: false, message: err instanceof Error ? err.message : 'Failed to connect to Oura.' })
+      setAuthorizeUrl(null)
+    } finally {
+      setConnecting(false)
     }
-    saveOuraConfig({ token })
-    setStatus({ ok: true, message: 'Saved. Testing connection…' })
-    setTesting(true)
-    const result = await testOuraConnection(token)
-    setTesting(false)
-    setStatus(result)
   }
 
   function handleClear() {
     clearOuraConfig()
-    setToken('')
-    setStatus({ ok: false, message: 'Cleared saved token.' })
+    setConnected(false)
+    setAuthorizeUrl(null)
+    setStatus({ ok: false, message: 'Disconnected from Oura.' })
   }
+
 
   const detailFor: Record<MetricKey, Record<string, number | null> | null> = {
     readiness: oura.readinessDetail as unknown as Record<string, number | null> | null,
@@ -244,20 +260,24 @@ function Home() {
 
         <SettingsGroup label="CONNECTION">
           <Card padding="sm" className="space-y-3">
-            <Input
-              type="password"
-              placeholder="Personal access token"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Button variant="highlight" size="sm" className="flex-1" onClick={handleSave} disabled={testing}>
-                {testing ? 'Testing…' : 'Save & Test'}
-              </Button>
+            {connected ? (
               <Button variant="secondary" size="sm" onClick={handleClear}>
-                Clear
+                Disconnect
               </Button>
-            </div>
+            ) : (
+              <Button variant="highlight" size="sm" onClick={handleConnect} disabled={connecting}>
+                {connecting ? 'Connecting…' : 'Connect with Oura'}
+              </Button>
+            )}
+            {authorizeUrl && (
+              <p className="text-[13px] tracking-[-0.13px] text-text-dim">
+                If a browser tab didn't open,{' '}
+                <a href={authorizeUrl} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                  tap here to authorize
+                </a>
+                .
+              </p>
+            )}
             {status && (
               <Badge variant={status.ok ? 'positive' : 'negative'}>{status.message}</Badge>
             )}
@@ -290,11 +310,11 @@ function Home() {
           <ListItem title="Steps" subtitle="From daily activity" />
         </SettingsGroup>
 
-        <SectionHeader title="How to get a token" />
+        <SectionHeader title="How to connect" />
         <Card padding="default" className="space-y-1">
-          <p className="text-[13px] tracking-[-0.13px] text-text-dim">1. Go to cloud.ouraring.com and sign in.</p>
-          <p className="text-[13px] tracking-[-0.13px] text-text-dim">2. Open Personal Access Tokens in account settings.</p>
-          <p className="text-[13px] tracking-[-0.13px] text-text-dim">3. Create a new token and paste it above.</p>
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim">1. Tap "Connect with Oura" above.</p>
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim">2. Sign in and approve access on Oura's page.</p>
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim">3. Return to this app — it connects automatically.</p>
         </Card>
       </div>
       <AppGlasses />

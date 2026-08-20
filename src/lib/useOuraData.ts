@@ -28,12 +28,12 @@ export function useOuraData(): OuraData {
 
     async function poll() {
       const config = loadOuraConfig()
-      if (!config?.token) {
+      if (!config?.accessToken) {
         if (!cancelled) setData({ ...EMPTY, connected: false, error: null })
         return
       }
       try {
-        const result = await fetchOuraData(config.token)
+        const result = await fetchOuraData(config)
         if (!cancelled) {
           setData({ ...result, connected: true, error: null })
         }

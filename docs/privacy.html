@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Oura Glance</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 32px 20px; line-height: 1.6; color: #222; }
+    h1 { font-size: 26px; }
+    h2 { font-size: 19px; margin-top: 32px; }
+    a { color: #0a66c2; }
+    footer { margin-top: 48px; font-size: 13px; color: #666; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+    .updated { color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <p><a href="./index.html">&larr; Oura Glance</a></p>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: August 20, 2026</p>
+
+  <p>Oura Glance ("the app") is a personal, hobby project built for Even Realities G2 smart glasses. It is <strong>not affiliated with, endorsed by, or officially supported by Oura Health Oy or Even Realities</strong>. This policy explains what data the app accesses and how it is (and is not) handled.</p>
+
+  <h2>What data the app accesses</h2>
+  <p>When you connect your Oura account, the app requests read-only access (via Oura's official OAuth2 API) to:</p>
+  <ul>
+    <li>Your Oura account email and basic profile info (<code>email</code>, <code>personal</code> scopes)</li>
+    <li>Daily Readiness, Sleep, and Activity summary scores and their contributing metrics (<code>daily</code> scope) — e.g. resting heart rate, HRV, sleep stage durations, steps, and calories</li>
+  </ul>
+
+  <h2>Where your data is stored</h2>
+  <ul>
+    <li><strong>On your device only.</strong> Your Oura OAuth access token, refresh token, and unit preference are stored in your phone's local app storage (<code>localStorage</code>) and never leave your device except to call Oura's API.</li>
+    <li><strong>The app has no backend database and no analytics.</strong> There is no server that stores your Oura data, your account, or any usage/analytics telemetry.</li>
+  </ul>
+
+  <h2>The role of the API proxy (Cloudflare Worker)</h2>
+  <p>Because the app runs inside a phone WebView subject to standard browser CORS restrictions, requests to Oura's API pass through a small Cloudflare Worker proxy that the developer operates. The proxy:</p>
+  <ul>
+    <li>Forwards your data requests to Oura's API using the Authorization header you already hold — it does not read, log, or store the response data.</li>
+    <li>Holds the app's confidential OAuth <code>client_secret</code> (required by Oura for the OAuth2 flow) and performs the authorization-code and refresh-token exchanges with Oura on the app's behalf.</li>
+    <li>Temporarily stores an OAuth handshake state token (a random ID, not your health data) for up to 10 minutes while you complete sign-in in your browser, after which it is deleted (or immediately upon the app retrieving the result).</li>
+  </ul>
+  <p>The proxy does not persist your access token, refresh token, or any Oura health data at rest.</p>
+
+  <h2>Data sharing</h2>
+  <p>Your data is never sold, shared with advertisers, or sent to any third party other than Oura's own API (to fetch your data) as part of normal app operation.</p>
+
+  <h2>Your controls</h2>
+  <p>You can disconnect the app at any time from the Connection section in the app, which clears your locally stored tokens. Disconnecting the app does not delete any data from your Oura account — manage that directly via <a href="https://cloud.ouraring.com" target="_blank" rel="noopener">cloud.ouraring.com</a>, including revoking the app's access under your Oura account's connected apps settings.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>This policy may be updated as the app evolves. Changes will be posted on this page.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or concerns: open an issue at <a href="https://github.com/tylermsellers/oura-glance-g2/issues">github.com/tylermsellers/oura-glance-g2/issues</a>.</p>
+
+  <footer>
+    &copy; 2026 Oura Glance. Personal project — not officially affiliated with Oura Health Oy or Even Realities.
+  </footer>
+</body>
+</html>

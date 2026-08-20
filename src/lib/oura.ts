@@ -1,12 +1,23 @@
 // Minimal Oura Ring API v2 client.
 // Docs: https://cloud.ouraring.com/v2/docs
-// Auth: Personal Access Token (Bearer) generated at https://cloud.ouraring.com/personal-access-tokens
+// Auth: OAuth2 (Oura discontinued Personal Access Tokens). The access/refresh
+// tokens are obtained and refreshed via the Cloudflare Worker proxy, which
+// holds the confidential client_secret server-side — see oura-proxy-worker.
+import { startOuraOAuth, refreshOuraTokens } from './ouraAuth'
 
 const STORAGE_KEY = 'oura_glance_config'
-const API_BASE = 'https://oura-glance-proxy.tylermsellers.workers.dev/v2/usercollection'
+const WORKER_BASE = 'https://oura-glance-proxy.tylermsellers.workers.dev'
+const API_BASE = `${WORKER_BASE}/v2/usercollection`
+
+// Refresh a bit before actual expiry to avoid racing a request against an
+// access token that expires mid-flight.
+const REFRESH_SKEW_MS = 5 * 60 * 1000
 
 export interface OuraConfig {
-  token: string
+  accessToken: string
+  refreshToken: string
+  /** Unix ms timestamp when accessToken expires. */
+  expiresAt: number
 }
 
 export function loadOuraConfig(): OuraConfig | null {
@@ -25,6 +36,36 @@ export function saveOuraConfig(config: OuraConfig) {
 
 export function clearOuraConfig() {
   localStorage.removeItem(STORAGE_KEY)
+}
+
+/** Kick off the OAuth2 authorization flow. Resolves with a saved config once
+ *  the user has completed consent in their browser, or rejects/times out. */
+export async function connectOura(): Promise<OuraConfig> {
+  const tokens = await startOuraOAuth()
+  const config: OuraConfig = {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: Date.now() + tokens.expiresIn * 1000,
+  }
+  saveOuraConfig(config)
+  return config
+}
+
+/** Returns a valid, non-expired access token, refreshing (and persisting the
+ *  refreshed config) via the Worker first if the current one is near expiry. */
+export async function ensureValidAccessToken(config: OuraConfig): Promise<string> {
+  if (config.expiresAt - Date.now() > REFRESH_SKEW_MS) {
+    return config.accessToken
+  }
+
+  const refreshed = await refreshOuraTokens(config.refreshToken)
+  const nextConfig: OuraConfig = {
+    accessToken: refreshed.accessToken,
+    refreshToken: refreshed.refreshToken,
+    expiresAt: Date.now() + refreshed.expiresIn * 1000,
+  }
+  saveOuraConfig(nextConfig)
+  return nextConfig.accessToken
 }
 
 // Format a Date as YYYY-MM-DD using LOCAL time (not UTC) — Oura's "day" is the
@@ -49,10 +90,10 @@ function pickForToday<T extends { day?: string }>(records: T[]): T | undefined {
   return records.find((r) => r.day === today) ?? records.at(-1)
 }
 
-async function fetchCollection(token: string, path: string, startDate: string, endDate: string) {
+async function fetchCollection(accessToken: string, path: string, startDate: string, endDate: string) {
   const url = `${API_BASE}/${path}?start_date=${startDate}&end_date=${endDate}`
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) {
     throw new Error(`Oura API ${path} failed: ${res.status} ${res.statusText}`)
@@ -120,7 +161,8 @@ function secondsToMinutes(v: number | null | undefined): number | null {
   return Math.round(v / 60)
 }
 
-export async function fetchOuraData(token: string): Promise<OuraFetchResult> {
+export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult> {
+  const accessToken = await ensureValidAccessToken(config)
   // Use a small window so we reliably get "today" even if it hasn't
   // finished processing yet (falls back to most recent available day).
   // Oura's end_date appears to be treated as exclusive/cutoff for "today", so
@@ -130,11 +172,11 @@ export async function fetchOuraData(token: string): Promise<OuraFetchResult> {
   const start = toLocalIso(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000))
 
   const [readiness, sleep, activity, resilience, sleepPeriods] = await Promise.all([
-    fetchCollection(token, 'daily_readiness', start, end),
-    fetchCollection(token, 'daily_sleep', start, end),
-    fetchCollection(token, 'daily_activity', start, end),
-    fetchCollection(token, 'daily_resilience', start, end),
-    fetchCollection(token, 'sleep', start, end),
+    fetchCollection(accessToken, 'daily_readiness', start, end),
+    fetchCollection(accessToken, 'daily_sleep', start, end),
+    fetchCollection(accessToken, 'daily_activity', start, end),
+    fetchCollection(accessToken, 'daily_resilience', start, end),
+    fetchCollection(accessToken, 'sleep', start, end),
   ])
 
   const latestReadiness = pickForToday(readiness.data)
@@ -208,9 +250,9 @@ export async function fetchOuraData(token: string): Promise<OuraFetchResult> {
   }
 }
 
-export async function testOuraConnection(token: string): Promise<{ ok: boolean; message: string }> {
+export async function testOuraConnection(config: OuraConfig): Promise<{ ok: boolean; message: string }> {
   try {
-    await fetchOuraData(token)
+    await fetchOuraData(config)
     return { ok: true, message: 'Connected to Oura API successfully.' }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Unknown error connecting to Oura API.' }
