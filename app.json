@@ -2,7 +2,7 @@
   "package_id": "com.tylermsellers.ouraglanceg2",
   "edition": "202601",
   "name": "Oura",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "min_app_version": "2.2.7",
   "min_sdk_version": "0.0.13",
   "entrypoint": "index.html",
@@ -13,7 +13,8 @@
       "whitelist": [
         "https://oura-glance-proxy.tylermsellers.workers.dev",
         "https://cloud.ouraring.com",
-        "https://api.ouraring.com"
+        "https://api.ouraring.com",
+        "https://react.dev"
       ]
     }
   ],
