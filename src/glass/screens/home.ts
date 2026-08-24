@@ -92,21 +92,23 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     }
 
     const highlighted = ((offset % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
-    const statsLines = buildStatsLines(oura)
-    // Only 3 lines fit below the tiles/blank row; show a preview and a
-    // scroll hint rather than silently truncating the rest of the stats.
-    const previewCount = DEFAULT_CONTENT_SLOTS - 4 - 1
-    const preview = statsLines.slice(0, previewCount)
 
+    // The home screen renders into a smaller "menu" text container below the
+    // image tile (see even-toolkit/glasses/bridge.ts showHomePage()), not the
+    // full-height container used by showTextPage() on detail screens. That
+    // container only fits ~5 lines total (title + separator + 3 content
+    // lines) -- confirmed empirically via the simulator, since
+    // even-toolkit does not expose a home-specific line-capacity constant.
+    // The 3 metric rows already consume all 3 available content lines, so
+    // there's no room for a separate preview/hint block below them; the
+    // "more" hint is folded into the header's action-bar line instead so it
+    // never gets clipped.
     return {
       lines: [
-        ...glassHeader('OURA', 'Tap: Details'),
+        ...glassHeader('OURA', 'Tap \u25b8 \u25bc Scroll'),
         line(`Activity    ${scoreLabel(oura.activityScore)}`, 'normal', highlighted === 0),
         line(`Sleep       ${scoreLabel(oura.sleepScore)}`, 'normal', highlighted === 1),
         line(`Readiness   ${scoreLabel(oura.readinessScore)}`, 'normal', highlighted === 2),
-        line(''),
-        ...preview.map((text) => line(text)),
-        line('\u25bc Scroll for more', 'meta'),
       ],
     }
   },
