@@ -1,7 +1,6 @@
 import type { GlassScreen } from 'even-toolkit/glass-screen-router'
-import { DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
+import { buildScrollableContent, DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
 import { moveHighlight, calcMaxScroll } from 'even-toolkit/glass-nav'
-import { buildScrollableContentWithBar } from '../scroll-utils'
 import type { AppSnapshot, AppActions, OuraData } from '../shared'
 import { formatTempDeviation, loadUnitSystem } from '../../lib/units'
 
@@ -33,7 +32,7 @@ function buildContentLines(oura: OuraData): string[] {
 export const readinessDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
   display(snapshot, nav) {
     const { oura } = snapshot
-    return buildScrollableContentWithBar({
+    return buildScrollableContent({
       title: `READINESS  ${oura.readinessScore ?? '--'}`,
       actionBar: 'Tap: Back',
       contentLines: buildContentLines(oura),

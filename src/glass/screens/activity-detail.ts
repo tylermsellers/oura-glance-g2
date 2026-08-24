@@ -1,7 +1,6 @@
 import type { GlassScreen } from 'even-toolkit/glass-screen-router'
-import { DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
+import { buildScrollableContent, DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
 import { moveHighlight, calcMaxScroll } from 'even-toolkit/glass-nav'
-import { buildScrollableContentWithBar } from '../scroll-utils'
 import type { AppSnapshot, AppActions, OuraData } from '../shared'
 import { formatHoursMinutes, formatDistance, loadUnitSystem } from '../../lib/units'
 
@@ -42,7 +41,7 @@ function buildContentLines(oura: OuraData): string[] {
 export const activityDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
   display(snapshot, nav) {
     const { oura } = snapshot
-    return buildScrollableContentWithBar({
+    return buildScrollableContent({
       title: `ACTIVITY  ${oura.activityScore ?? '--'}`,
       actionBar: 'Tap: Back',
       contentLines: buildContentLines(oura),
