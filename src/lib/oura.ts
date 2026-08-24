@@ -115,6 +115,27 @@ async function fetchCollection(accessToken: string, path: string, startDate: str
   return res.json() as Promise<{ data: any[] }>
 }
 
+// heartrate is a timeseries endpoint (not a daily collection) -- it takes
+// start_datetime/end_datetime (not start_date/end_date) and supports
+// latest=true so we can just get the most recent reading directly instead of
+// pulling and sorting the whole window ourselves.
+async function fetchLatestHeartRate(accessToken: string): Promise<number | null> {
+  const end = new Date()
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+  const url =
+    `${API_BASE}/heartrate?start_datetime=${start.toISOString()}` +
+    `&end_datetime=${end.toISOString()}&latest=true`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) {
+    // Non-fatal -- heart rate data may simply not be available yet.
+    return null
+  }
+  const body = (await res.json()) as { data: Array<{ bpm?: number }> }
+  return body.data.at(-1)?.bpm ?? null
+}
+
 export interface ReadinessDetail {
   hrvBalanceScore: number | null
   restingHeartRate: number | null // bpm, raw
@@ -165,6 +186,8 @@ export interface OuraFetchResult {
   activeCalories: number | null
   totalCalories: number | null
   steps: number | null
+  stressSummary: string | null // 'restored' | 'normal' | 'stressful' from Oura, or null
+  latestHeartRate: number | null // bpm, most recent reading
   readinessDetail: ReadinessDetail | null
   sleepDetail: SleepDetail | null
   activityDetail: ActivityDetail | null
@@ -185,18 +208,21 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
   const end = toLocalIso(new Date(Date.now() + 24 * 60 * 60 * 1000))
   const start = toLocalIso(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000))
 
-  const [readiness, sleep, activity, resilience, sleepPeriods] = await Promise.all([
+  const [readiness, sleep, activity, resilience, sleepPeriods, stress, latestHeartRate] = await Promise.all([
     fetchCollection(accessToken, 'daily_readiness', start, end),
     fetchCollection(accessToken, 'daily_sleep', start, end),
     fetchCollection(accessToken, 'daily_activity', start, end),
     fetchCollection(accessToken, 'daily_resilience', start, end),
     fetchCollection(accessToken, 'sleep', start, end),
+    fetchCollection(accessToken, 'daily_stress', start, end),
+    fetchLatestHeartRate(accessToken),
   ])
 
   const latestReadiness = pickForToday(readiness.data)
   const latestSleep = pickForToday(sleep.data)
   const latestActivity = pickForToday(activity.data)
   const latestResilience = pickForToday(resilience.data)
+  const latestStress = pickForToday(stress.data)
   // Prefer the longest/main sleep period matching the same day as latestSleep
   // (the actual night's sleep, not a nap logged on a different day).
   const sleepCandidates = sleepPeriods.data.filter((p) => p.type === 'long_sleep' || p.type === 'sleep')
@@ -216,6 +242,8 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
     activeCalories: latestActivity?.active_calories ?? null,
     totalCalories: latestActivity?.total_calories ?? null,
     steps: latestActivity?.steps ?? null,
+    stressSummary: latestStress?.day_summary ?? null,
+    latestHeartRate,
     readinessDetail: rc
       ? {
           hrvBalanceScore: rc.hrv_balance ?? null,

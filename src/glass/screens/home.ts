@@ -1,6 +1,9 @@
 import type { GlassScreen } from 'even-toolkit/glass-screen-router'
 import { glassHeader, line } from 'even-toolkit/types'
-import type { AppSnapshot, AppActions } from '../shared'
+import { buildScrollableContent, DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
+import { moveHighlight, calcMaxScroll } from 'even-toolkit/glass-nav'
+import { createModeEncoder } from 'even-toolkit/glass-mode'
+import type { AppSnapshot, AppActions, OuraData } from '../shared'
 import { formatHoursMinutes } from '../../lib/units'
 
 function scoreLabel(score: number | null): string {
@@ -8,10 +11,38 @@ function scoreLabel(score: number | null): string {
   return `${score}`
 }
 
+function stressLabel(summary: string | null): string {
+  if (!summary) return '--'
+  return summary.charAt(0).toUpperCase() + summary.slice(1)
+}
+
 // The three metric rows are selectable and drill into their own detail screen.
 // Order matches the phone app + user preference: Activity, Sleep, Readiness.
 const METRIC_SCREENS = ['activity-detail', 'sleep-detail', 'readiness-detail'] as const
 const METRIC_COUNT = METRIC_SCREENS.length
+
+// The stats block below the metric rows no longer fits the display (it grew
+// from 4 to 6 lines once Stress and Latest HR were added), so it's rendered
+// as its own scrollable content region. nav.highlightedIndex is reused for
+// both tile selection (0-99) and stats scroll offset (100+) via a mode
+// encoder, since a single screen can only carry one nav number.
+const NAV_MODE = createModeEncoder({ tiles: 0, scroll: 100 })
+
+function buildStatsLines(oura: OuraData): string[] {
+  const totalActiveMinutes =
+    (oura.activityDetail?.highActivityMinutes ?? 0) +
+    (oura.activityDetail?.mediumActivityMinutes ?? 0) +
+    (oura.activityDetail?.lowActivityMinutes ?? 0)
+
+  return [
+    `Active time ${formatHoursMinutes(totalActiveMinutes || null)}`,
+    `Sleep time  ${formatHoursMinutes(oura.sleepDetail?.totalSleepMinutes ?? null)}`,
+    `Resilience  ${oura.resilienceLevel ?? '--'}`,
+    `Steps       ${oura.steps ?? '--'}`,
+    `Stress      ${stressLabel(oura.stressSummary)}`,
+    `HR (latest) ${oura.latestHeartRate !== null ? `${oura.latestHeartRate} bpm` : '--'}`,
+  ]
+}
 
 export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
   display(snapshot, nav) {
@@ -40,11 +71,27 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
       }
     }
 
-    const highlighted = ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
-    const totalActiveMinutes =
-      (oura.activityDetail?.highActivityMinutes ?? 0) +
-      (oura.activityDetail?.mediumActivityMinutes ?? 0) +
-      (oura.activityDetail?.lowActivityMinutes ?? 0)
+    const { mode, offset } = NAV_MODE.decode(nav.highlightedIndex)
+
+    if (mode === 'scroll') {
+      // In the scrolled-down stats view, the three metric rows are folded
+      // into the same scrollable window as the stats, so nothing above the
+      // header is highlightable -- only GO_BACK / more scrolling applies.
+      return buildScrollableContent({
+        title: 'OURA',
+        actionBar: 'Tap: Details',
+        contentLines: buildStatsLines(oura),
+        scrollPos: offset,
+        contentStyle: 'normal',
+      })
+    }
+
+    const highlighted = ((offset % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
+    const statsLines = buildStatsLines(oura)
+    // Only 3 lines fit below the tiles/blank row; show a preview and a
+    // scroll hint rather than silently truncating the rest of the stats.
+    const previewCount = DEFAULT_CONTENT_SLOTS - 4 - 1
+    const preview = statsLines.slice(0, previewCount)
 
     return {
       lines: [
@@ -53,10 +100,8 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
         line(`Sleep       ${scoreLabel(oura.sleepScore)}`, 'normal', highlighted === 1),
         line(`Readiness   ${scoreLabel(oura.readinessScore)}`, 'normal', highlighted === 2),
         line(''),
-        line(`Active time ${formatHoursMinutes(totalActiveMinutes || null)}`),
-        line(`Sleep time  ${formatHoursMinutes(oura.sleepDetail?.totalSleepMinutes ?? null)}`),
-        line(`Resilience  ${oura.resilienceLevel ?? '--'}`),
-        line(`Steps       ${oura.steps ?? '--'}`),
+        ...preview.map((text) => line(text)),
+        line('\u25bc Scroll for more', 'meta'),
       ],
     }
   },
@@ -65,17 +110,36 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     const { oura } = snapshot
     if (!oura.connected || oura.error) return nav
 
+    const { mode, offset } = NAV_MODE.decode(nav.highlightedIndex)
+
     if (action.type === 'HIGHLIGHT_MOVE') {
-      const delta = action.direction === 'down' ? 1 : -1
-      const next = ((nav.highlightedIndex + delta) % METRIC_COUNT + METRIC_COUNT) % METRIC_COUNT
-      return { ...nav, highlightedIndex: next }
+      if (mode === 'scroll') {
+        const maxScroll = calcMaxScroll(buildStatsLines(oura).length, DEFAULT_CONTENT_SLOTS)
+        const next = moveHighlight(offset, action.direction, maxScroll)
+        return { ...nav, highlightedIndex: NAV_MODE.encode('scroll', next) }
+      }
+
+      // Scrolling down past the last metric tile transitions into the
+      // scrollable stats view; scrolling up from the stats view (at its top)
+      // transitions back to tile selection on the last tile.
+      if (action.direction === 'down') {
+        const next = offset + 1
+        if (next >= METRIC_COUNT) {
+          return { ...nav, highlightedIndex: NAV_MODE.encode('scroll', 0) }
+        }
+        return { ...nav, highlightedIndex: NAV_MODE.encode('tiles', next) }
+      }
+      const next = ((offset - 1) % METRIC_COUNT + METRIC_COUNT) % METRIC_COUNT
+      return { ...nav, highlightedIndex: NAV_MODE.encode('tiles', next) }
     }
 
     if (action.type === 'SELECT_HIGHLIGHTED') {
-      const highlighted = ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
+      if (mode === 'scroll') return nav
+      const highlighted = ((offset % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
       return { screen: METRIC_SCREENS[highlighted], highlightedIndex: 0 }
     }
 
     return nav
   },
 }
+

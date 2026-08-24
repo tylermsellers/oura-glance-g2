@@ -336,6 +336,8 @@ function Home() {
           <ListItem title="Resilience" subtitle="Contributor level (limited/adequate/solid/strong/exceptional)" />
           <ListItem title="Active & Total Calories" subtitle="From daily activity" />
           <ListItem title="Steps" subtitle="From daily activity" />
+          <ListItem title="Stress" subtitle="Daily stress summary (restored/normal/stressful)" />
+          <ListItem title="Latest Heart Rate" subtitle="Most recent bpm reading" />
         </SettingsGroup>
 
         <SectionHeader title="How to connect" />

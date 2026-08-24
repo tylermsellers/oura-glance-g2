@@ -12,6 +12,8 @@ const EMPTY: OuraData = {
   activeCalories: null,
   totalCalories: null,
   steps: null,
+  stressSummary: null,
+  latestHeartRate: null,
   readinessDetail: null,
   sleepDetail: null,
   activityDetail: null,

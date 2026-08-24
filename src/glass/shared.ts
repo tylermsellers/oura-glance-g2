@@ -10,6 +10,8 @@ export interface OuraData {
   activeCalories: number | null
   totalCalories: number | null
   steps: number | null
+  stressSummary: string | null
+  latestHeartRate: number | null
   readinessDetail: ReadinessDetail | null
   sleepDetail: SleepDetail | null
   activityDetail: ActivityDetail | null
