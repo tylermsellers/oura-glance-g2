@@ -16,6 +16,11 @@ function stressLabel(summary: string | null): string {
   return summary.charAt(0).toUpperCase() + summary.slice(1)
 }
 
+function capitalize(v: string | null): string {
+  if (!v) return '--'
+  return v.charAt(0).toUpperCase() + v.slice(1)
+}
+
 // The three metric rows are selectable and drill into their own detail screen.
 // Order matches the phone app + user preference: Activity, Sleep, Readiness.
 const METRIC_SCREENS = ['activity-detail', 'sleep-detail', 'readiness-detail'] as const
@@ -37,7 +42,7 @@ function buildStatsLines(oura: OuraData): string[] {
   return [
     `Active time ${formatHoursMinutes(totalActiveMinutes || null)}`,
     `Sleep time  ${formatHoursMinutes(oura.sleepDetail?.totalSleepMinutes ?? null)}`,
-    `Resilience  ${oura.resilienceLevel ?? '--'}`,
+    `Resilience  ${capitalize(oura.resilienceLevel)}`,
     `Steps       ${oura.steps ?? '--'}`,
     `Stress      ${stressLabel(oura.stressSummary)}`,
     `HR (latest) ${oura.latestHeartRate !== null ? `${oura.latestHeartRate} bpm` : '--'}`,
@@ -114,6 +119,12 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
 
     if (action.type === 'HIGHLIGHT_MOVE') {
       if (mode === 'scroll') {
+        if (action.direction === 'up' && offset === 0) {
+          // Scrolling up from the very top of the stats view transitions
+          // back to tile selection, landing on the last tile -- otherwise
+          // moveHighlight() just clamps at 0 forever and "up" does nothing.
+          return { ...nav, highlightedIndex: NAV_MODE.encode('tiles', METRIC_COUNT - 1) }
+        }
         const maxScroll = calcMaxScroll(buildStatsLines(oura).length, DEFAULT_CONTENT_SLOTS)
         const next = moveHighlight(offset, action.direction, maxScroll)
         return { ...nav, highlightedIndex: NAV_MODE.encode('scroll', next) }
