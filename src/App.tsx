@@ -16,7 +16,7 @@ import {
 } from 'even-toolkit/web'
 import { AppGlasses } from './glass/AppGlasses'
 import { loadOuraConfig, saveOuraConfig, clearOuraConfig, testOuraConnection } from './lib/oura'
-import { beginOuraOAuth } from './lib/ouraAuth'
+import { beginOuraOAuth, completePendingOuraOAuth } from './lib/ouraAuth'
 import { useOuraData } from './lib/useOuraData'
 import { loadUnitSystem, saveUnitSystem, formatHoursMinutes, formatDistance, formatTempDeviation, type UnitSystem } from './lib/units'
 
@@ -108,6 +108,40 @@ function Home() {
     const config = loadOuraConfig()
     setConnected(!!config)
     setUnits(loadUnitSystem())
+
+    // If this load is the return leg of an OAuth redirect (see ouraAuth.ts),
+    // resolve the already-terminal result and finish connecting. The Even
+    // Hub host's WebView navigates in place rather than opening a separate
+    // browser tab, so this — not a background poll — is how the flow
+    // actually completes.
+    let cancelled = false
+    setConnecting(true)
+    completePendingOuraOAuth()
+      .then(async (tokens) => {
+        if (!tokens || cancelled) return
+        const nextConfig = {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          expiresAt: Date.now() + tokens.expiresIn * 1000,
+        }
+        saveOuraConfig(nextConfig)
+        setConnected(true)
+        setStatus({ ok: true, message: 'Connected. Testing connection…' })
+        const result = await testOuraConnection(nextConfig)
+        if (!cancelled) setStatus(result)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setStatus({ ok: false, message: err instanceof Error ? err.message : 'Failed to connect to Oura.' })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setConnecting(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   function handleUnitsChange(value: string) {
@@ -121,25 +155,14 @@ function Home() {
     setAuthorizeUrl(null)
     setConnecting(true)
     try {
+      // Navigates the current window to Oura's consent page; this call
+      // does not normally return, since the page unloads.
       const handle = await beginOuraOAuth()
       setAuthorizeUrl(handle.authorizeUrl)
-      setStatus({ ok: true, message: 'Waiting for you to finish authorizing in your browser…' })
-      const tokens = await handle.result
-      const config = {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: Date.now() + tokens.expiresIn * 1000,
-      }
-      saveOuraConfig(config)
-      setConnected(true)
-      setAuthorizeUrl(null)
-      setStatus({ ok: true, message: 'Connected. Testing connection…' })
-      const result = await testOuraConnection(config)
-      setStatus(result)
+      setStatus({ ok: true, message: 'Redirecting you to Oura to authorize…' })
     } catch (err) {
       setStatus({ ok: false, message: err instanceof Error ? err.message : 'Failed to connect to Oura.' })
       setAuthorizeUrl(null)
-    } finally {
       setConnecting(false)
     }
   }
@@ -271,8 +294,8 @@ function Home() {
             )}
             {authorizeUrl && (
               <p className="text-[13px] tracking-[-0.13px] text-text-dim">
-                If a browser tab didn't open,{' '}
-                <a href={authorizeUrl} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                If you weren't redirected automatically,{' '}
+                <a href={authorizeUrl} rel="noopener noreferrer" className="text-accent underline">
                   tap here to authorize
                 </a>
                 .

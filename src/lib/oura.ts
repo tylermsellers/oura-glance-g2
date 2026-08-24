@@ -3,7 +3,7 @@
 // Auth: OAuth2 (Oura discontinued Personal Access Tokens). The access/refresh
 // tokens are obtained and refreshed via the Cloudflare Worker proxy, which
 // holds the confidential client_secret server-side — see oura-proxy-worker.
-import { startOuraOAuth, refreshOuraTokens } from './ouraAuth'
+import { refreshOuraTokens } from './ouraAuth'
 
 const STORAGE_KEY = 'oura_glance_config'
 const WORKER_BASE = 'https://oura-glance-proxy.tylermsellers.workers.dev'
@@ -36,19 +36,6 @@ export function saveOuraConfig(config: OuraConfig) {
 
 export function clearOuraConfig() {
   localStorage.removeItem(STORAGE_KEY)
-}
-
-/** Kick off the OAuth2 authorization flow. Resolves with a saved config once
- *  the user has completed consent in their browser, or rejects/times out. */
-export async function connectOura(): Promise<OuraConfig> {
-  const tokens = await startOuraOAuth()
-  const config: OuraConfig = {
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    expiresAt: Date.now() + tokens.expiresIn * 1000,
-  }
-  saveOuraConfig(config)
-  return config
 }
 
 /** Returns a valid, non-expired access token, refreshing (and persisting the
