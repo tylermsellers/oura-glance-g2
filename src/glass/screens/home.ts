@@ -1,8 +1,9 @@
 import type { GlassScreen } from 'even-toolkit/glass-screen-router'
 import { glassHeader, line } from 'even-toolkit/types'
-import { buildScrollableContent, DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
+import { DEFAULT_CONTENT_SLOTS } from 'even-toolkit/glass-display-builders'
 import { moveHighlight, calcMaxScroll } from 'even-toolkit/glass-nav'
 import { createModeEncoder } from 'even-toolkit/glass-mode'
+import { buildScrollableContentWithBar } from '../scroll-utils'
 import type { AppSnapshot, AppActions, OuraData } from '../shared'
 import { formatHoursMinutes } from '../../lib/units'
 
@@ -82,7 +83,7 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
       // In the scrolled-down stats view, the three metric rows are folded
       // into the same scrollable window as the stats, so nothing above the
       // header is highlightable -- only GO_BACK / more scrolling applies.
-      return buildScrollableContent({
+      return buildScrollableContentWithBar({
         title: 'OURA',
         actionBar: 'Tap: Details',
         contentLines: buildStatsLines(oura),
