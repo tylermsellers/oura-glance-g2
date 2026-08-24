@@ -1,22 +1,44 @@
-// Unit system preference (Imperial vs Metric), persisted to localStorage.
-// Affects distance (meters -> km or mi) and temperature (deviation is already
-// a delta in °C from Oura; we convert to a °F delta when Imperial is selected).
+// Unit system preference (Imperial vs Metric), persisted durably via
+// persistentStorage (see that module for why plain browser localStorage
+// isn't reliable in the Even Hub host's WebView). Affects distance (meters
+// -> km or mi) and temperature (deviation is already a delta in °C from
+// Oura; we convert to a °F delta when Imperial is selected).
+//
+// Several call sites (the glass-screen renderers) need a synchronous read,
+// so we keep an in-memory cache alongside the async persistent store:
+// `hydrateUnitSystem()` loads the durable value once at startup and updates
+// the cache; `loadUnitSystem()` stays synchronous, reading whatever the
+// cache currently holds (defaulting to 'metric' before hydration completes).
+import { getPersistent, setPersistent } from './persistentStorage'
 
 const UNITS_STORAGE_KEY = 'oura_glance_units'
 
 export type UnitSystem = 'metric' | 'imperial'
 
-export function loadUnitSystem(): UnitSystem {
+let cachedUnits: UnitSystem = 'metric'
+
+/** Loads the persisted preference once (e.g. at app startup) and updates the
+ *  in-memory cache that loadUnitSystem() reads synchronously. */
+export async function hydrateUnitSystem(): Promise<UnitSystem> {
   try {
-    const raw = localStorage.getItem(UNITS_STORAGE_KEY)
-    return raw === 'imperial' ? 'imperial' : 'metric'
+    const raw = await getPersistent(UNITS_STORAGE_KEY)
+    cachedUnits = raw === 'imperial' ? 'imperial' : 'metric'
   } catch {
-    return 'metric'
+    cachedUnits = 'metric'
   }
+  return cachedUnits
+}
+
+/** Synchronous read of the last-known preference (see module docs above). */
+export function loadUnitSystem(): UnitSystem {
+  return cachedUnits
 }
 
 export function saveUnitSystem(units: UnitSystem) {
-  localStorage.setItem(UNITS_STORAGE_KEY, units)
+  cachedUnits = units
+  setPersistent(UNITS_STORAGE_KEY, units).catch(() => {
+    // Non-fatal — the in-memory/UI state still reflects the change.
+  })
 }
 
 /** Format minutes as "Xh Ym" (or "Ym" if under an hour). */

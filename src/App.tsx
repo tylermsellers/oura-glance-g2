@@ -18,7 +18,7 @@ import { AppGlasses } from './glass/AppGlasses'
 import { loadOuraConfig, saveOuraConfig, clearOuraConfig, testOuraConnection } from './lib/oura'
 import { beginOuraOAuth, completePendingOuraOAuth } from './lib/ouraAuth'
 import { useOuraData } from './lib/useOuraData'
-import { loadUnitSystem, saveUnitSystem, formatHoursMinutes, formatDistance, formatTempDeviation, type UnitSystem } from './lib/units'
+import { hydrateUnitSystem, saveUnitSystem, formatHoursMinutes, formatDistance, formatTempDeviation, type UnitSystem } from './lib/units'
 
 function scoreLabel(score: number | null): string {
   return score === null ? '–' : `${score}`
@@ -105,16 +105,20 @@ function Home() {
   const oura = useOuraData()
 
   useEffect(() => {
-    const config = loadOuraConfig()
-    setConnected(!!config)
-    setUnits(loadUnitSystem())
+    let cancelled = false
+
+    hydrateUnitSystem().then((u) => {
+      if (!cancelled) setUnits(u)
+    })
+    loadOuraConfig().then((config) => {
+      if (!cancelled) setConnected(!!config)
+    })
 
     // If this load is the return leg of an OAuth redirect (see ouraAuth.ts),
     // resolve the already-terminal result and finish connecting. The Even
     // Hub host's WebView navigates in place rather than opening a separate
     // browser tab, so this — not a background poll — is how the flow
     // actually completes.
-    let cancelled = false
     setConnecting(true)
     completePendingOuraOAuth()
       .then(async (tokens) => {
@@ -124,7 +128,8 @@ function Home() {
           refreshToken: tokens.refreshToken,
           expiresAt: Date.now() + tokens.expiresIn * 1000,
         }
-        saveOuraConfig(nextConfig)
+        await saveOuraConfig(nextConfig)
+        if (cancelled) return
         setConnected(true)
         setStatus({ ok: true, message: 'Connected. Testing connection…' })
         const result = await testOuraConnection(nextConfig)
@@ -167,8 +172,8 @@ function Home() {
     }
   }
 
-  function handleClear() {
-    clearOuraConfig()
+  async function handleClear() {
+    await clearOuraConfig()
     setConnected(false)
     setAuthorizeUrl(null)
     setStatus({ ok: false, message: 'Disconnected from Oura.' })

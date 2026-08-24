@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchOuraData, loadOuraConfig } from './oura'
+import { fetchOuraData, loadOuraConfig, onOuraConfigChanged } from './oura'
 import type { OuraData } from '../glass/shared'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000 // Oura data updates a few times/day; 5 min is plenty
@@ -27,7 +27,7 @@ export function useOuraData(): OuraData {
     let cancelled = false
 
     async function poll() {
-      const config = loadOuraConfig()
+      const config = await loadOuraConfig()
       if (!config?.accessToken) {
         if (!cancelled) setData({ ...EMPTY, connected: false, error: null })
         return
@@ -50,10 +50,15 @@ export function useOuraData(): OuraData {
 
     poll()
     timerRef.current = setInterval(poll, POLL_INTERVAL_MS)
+    // Re-poll immediately whenever the saved config changes (connect,
+    // disconnect, or the OAuth redirect-return flow finishing asynchronously
+    // after this hook already mounted) instead of waiting up to 5 minutes.
+    const unsubscribe = onOuraConfigChanged(poll)
 
     return () => {
       cancelled = true
       if (timerRef.current) clearInterval(timerRef.current)
+      unsubscribe()
     }
   }, [])
 

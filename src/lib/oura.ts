@@ -4,6 +4,7 @@
 // tokens are obtained and refreshed via the Cloudflare Worker proxy, which
 // holds the confidential client_secret server-side — see oura-proxy-worker.
 import { refreshOuraTokens } from './ouraAuth'
+import { getPersistent, setPersistent, removePersistent } from './persistentStorage'
 
 const STORAGE_KEY = 'oura_glance_config'
 const WORKER_BASE = 'https://oura-glance-proxy.tylermsellers.workers.dev'
@@ -20,9 +21,14 @@ export interface OuraConfig {
   expiresAt: number
 }
 
-export function loadOuraConfig(): OuraConfig | null {
+// Persisted via persistentStorage (bridge.setLocalStorage/getLocalStorage),
+// not plain browser localStorage — the Even Hub host's Flutter WebView does
+// not reliably keep browser localStorage across app restarts, which was
+// causing the Oura connection to silently disappear whenever the app was
+// closed and relaunched.
+export async function loadOuraConfig(): Promise<OuraConfig | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = await getPersistent(STORAGE_KEY)
     if (!raw) return null
     return JSON.parse(raw) as OuraConfig
   } catch {
@@ -30,12 +36,30 @@ export function loadOuraConfig(): OuraConfig | null {
   }
 }
 
-export function saveOuraConfig(config: OuraConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+// useOuraData() only reads config once on mount and then polls on a 5-minute
+// timer. That's fine for token refreshes, but it raced with the OAuth
+// redirect-return flow: App.tsx's effect resolves the OAuth result and calls
+// saveOuraConfig() asynchronously (after a network round trip), while
+// useOuraData()'s initial poll runs synchronously on mount — before the
+// config exists — so it recorded "not connected" and didn't check again for
+// 5 minutes, even though the connection actually succeeded moments later.
+// Dispatching this event on every save/clear lets useOuraData re-poll
+// immediately whenever the config actually changes.
+const CONFIG_CHANGED_EVENT = 'oura-glance:config-changed'
+
+export function onOuraConfigChanged(cb: () => void): () => void {
+  window.addEventListener(CONFIG_CHANGED_EVENT, cb)
+  return () => window.removeEventListener(CONFIG_CHANGED_EVENT, cb)
 }
 
-export function clearOuraConfig() {
-  localStorage.removeItem(STORAGE_KEY)
+export async function saveOuraConfig(config: OuraConfig): Promise<void> {
+  await setPersistent(STORAGE_KEY, JSON.stringify(config))
+  window.dispatchEvent(new Event(CONFIG_CHANGED_EVENT))
+}
+
+export async function clearOuraConfig(): Promise<void> {
+  await removePersistent(STORAGE_KEY)
+  window.dispatchEvent(new Event(CONFIG_CHANGED_EVENT))
 }
 
 /** Returns a valid, non-expired access token, refreshing (and persisting the
@@ -51,7 +75,10 @@ export async function ensureValidAccessToken(config: OuraConfig): Promise<string
     refreshToken: refreshed.refreshToken,
     expiresAt: Date.now() + refreshed.expiresIn * 1000,
   }
-  saveOuraConfig(nextConfig)
+  saveOuraConfig(nextConfig).catch(() => {
+    // Non-fatal: the refreshed token is still returned/used for this
+    // request even if persisting it failed.
+  })
   return nextConfig.accessToken
 }
 
