@@ -19,6 +19,7 @@ const EMPTY: OuraData = {
   activityDetail: null,
   connected: false,
   error: null,
+  missingPermissions: [],
 }
 
 export function useOuraData(): OuraData {

@@ -15,7 +15,7 @@ import {
   SegmentedControl,
 } from 'even-toolkit/web'
 import { AppGlasses } from './glass/AppGlasses'
-import { loadOuraConfig, saveOuraConfig, clearOuraConfig, testOuraConnection } from './lib/oura'
+import { loadOuraConfig, saveOuraConfig, clearOuraConfig, testOuraConnection, missingPermissionsMessage } from './lib/oura'
 import { beginOuraOAuth, completePendingOuraOAuth } from './lib/ouraAuth'
 import { useOuraData } from './lib/useOuraData'
 import { hydrateUnitSystem, saveUnitSystem, formatHoursMinutes, formatDistance, formatTempDeviation, type UnitSystem } from './lib/units'
@@ -288,6 +288,17 @@ function Home() {
 
         <SettingsGroup label="CONNECTION">
           <Card padding="sm" className="space-y-3">
+            {oura.missingPermissions.length > 0 && (
+              <div className="space-y-2">
+                <Badge variant="negative">Missing Oura permissions</Badge>
+                <p className="text-[13px] tracking-[-0.13px] text-text-dim">
+                  {missingPermissionsMessage(oura.missingPermissions)}
+                </p>
+                <Button variant="highlight" size="sm" onClick={handleConnect} disabled={connecting}>
+                  {connecting ? 'Reconnecting…' : 'Reconnect with Oura'}
+                </Button>
+              </div>
+            )}
             {connected ? (
               <Button variant="secondary" size="sm" onClick={handleClear}>
                 Disconnect
