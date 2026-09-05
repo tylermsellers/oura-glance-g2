@@ -104,13 +104,80 @@ function pickForToday<T extends { day?: string }>(records: T[]): T | undefined {
   return records.find((r) => r.day === today) ?? records.at(-1)
 }
 
+// Oura's consent screen lets the user deselect individual data categories,
+// so a login can "succeed" while the resulting token is missing scopes that
+// Oura Glance needs. Those calls then fail with 403. A 403 can also mean the
+// user has no active Oura Membership (Gen3+ users without one can't reach the
+// API at all), which looks identical at the status-code level -- the only way
+// to tell them apart is the response body, so we read and classify it.
+export type OuraErrorKind = 'missing_scope' | 'membership' | 'unauthorized' | 'other'
+
+export class OuraApiError extends Error {
+  status: number
+  endpoint: string
+  kind: OuraErrorKind
+  detail: string
+
+  constructor(endpoint: string, status: number, kind: OuraErrorKind, detail: string) {
+    super(`Oura API ${endpoint} failed: ${status}${detail ? ` - ${detail}` : ''}`)
+    this.name = 'OuraApiError'
+    this.endpoint = endpoint
+    this.status = status
+    this.kind = kind
+    this.detail = detail
+  }
+}
+
+// Which Oura OAuth scope each endpoint we call depends on, and the label Oura
+// uses for it on the consent screen -- so we can name the exact checkbox the
+// user needs to re-enable rather than saying "something went wrong".
+const ENDPOINT_SCOPE_LABEL: Record<string, string> = {
+  daily_readiness: 'Daily Summaries',
+  daily_sleep: 'Daily Summaries',
+  daily_activity: 'Daily Summaries',
+  daily_resilience: 'Daily Summaries',
+  daily_stress: 'Daily Summaries',
+  sleep: 'Daily Summaries',
+  heartrate: 'Heart Rate',
+}
+
+export function scopeLabelForEndpoint(endpoint: string): string {
+  return ENDPOINT_SCOPE_LABEL[endpoint] ?? endpoint
+}
+
+async function classifyFailure(res: Response, endpoint: string): Promise<OuraApiError> {
+  let detail = ''
+  try {
+    const body = await res.text()
+    try {
+      const parsed = JSON.parse(body) as { title?: string; detail?: string }
+      detail = [parsed.title, parsed.detail].filter(Boolean).join(': ')
+    } catch {
+      detail = body.slice(0, 200)
+    }
+  } catch {
+    detail = res.statusText
+  }
+
+  if (res.status === 401) {
+    return new OuraApiError(endpoint, res.status, 'unauthorized', detail)
+  }
+  if (res.status === 403) {
+    // Oura returns {"title":"Missing Scopes", ...} when the token lacks a
+    // scope. Anything else at 403 is most likely the membership restriction.
+    const kind: OuraErrorKind = /scope/i.test(detail) ? 'missing_scope' : 'membership'
+    return new OuraApiError(endpoint, res.status, kind, detail)
+  }
+  return new OuraApiError(endpoint, res.status, 'other', detail)
+}
+
 async function fetchCollection(accessToken: string, path: string, startDate: string, endDate: string) {
   const url = `${API_BASE}/${path}?start_date=${startDate}&end_date=${endDate}`
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) {
-    throw new Error(`Oura API ${path} failed: ${res.status} ${res.statusText}`)
+    throw await classifyFailure(res, path)
   }
   return res.json() as Promise<{ data: any[] }>
 }
@@ -129,8 +196,10 @@ async function fetchLatestHeartRate(accessToken: string): Promise<number | null>
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) {
-    // Non-fatal -- heart rate data may simply not be available yet.
-    return null
+    // Classified so a missing 'heartrate' scope can be reported to the user
+    // instead of silently rendering "--" forever. The caller decides what is
+    // fatal; heart rate on its own never is.
+    throw await classifyFailure(res, 'heartrate')
   }
   const body = (await res.json()) as { data: Array<{ bpm?: number }> }
   return body.data.at(-1)?.bpm ?? null
@@ -191,6 +260,9 @@ export interface OuraFetchResult {
   readinessDetail: ReadinessDetail | null
   sleepDetail: SleepDetail | null
   activityDetail: ActivityDetail | null
+  /** Consent-screen labels for permissions the user did not grant. Empty when
+   *  everything Oura Glance needs was approved. */
+  missingPermissions: string[]
 }
 
 function secondsToMinutes(v: number | null | undefined): number | null {
@@ -208,7 +280,7 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
   const end = toLocalIso(new Date(Date.now() + 24 * 60 * 60 * 1000))
   const start = toLocalIso(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000))
 
-  const [readiness, sleep, activity, resilience, sleepPeriods, stress, latestHeartRate] = await Promise.all([
+  const settled = await Promise.allSettled([
     fetchCollection(accessToken, 'daily_readiness', start, end),
     fetchCollection(accessToken, 'daily_sleep', start, end),
     fetchCollection(accessToken, 'daily_activity', start, end),
@@ -217,6 +289,44 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
     fetchCollection(accessToken, 'daily_stress', start, end),
     fetchLatestHeartRate(accessToken),
   ])
+
+  // A denied permission previously rejected the whole Promise.all, which
+  // blanked every metric even when most of them were granted. Collect the
+  // failures instead so partial data still renders, and so we can name every
+  // missing permission at once rather than only the first one that failed.
+  const missingPermissions: string[] = []
+  let fatal: OuraApiError | Error | null = null
+
+  for (const outcome of settled) {
+    if (outcome.status !== 'rejected') continue
+    const err = outcome.reason
+    if (err instanceof OuraApiError && err.kind === 'missing_scope') {
+      const label = scopeLabelForEndpoint(err.endpoint)
+      if (!missingPermissions.includes(label)) missingPermissions.push(label)
+      continue
+    }
+    // Anything that isn't a permission problem (expired token, membership
+    // restriction, network/proxy failure) is a real error worth surfacing.
+    // Heart rate is the exception: it was always best-effort, so a failure
+    // there alone should not take down the rest of the dashboard.
+    if (err instanceof OuraApiError && err.endpoint === 'heartrate') continue
+    if (!fatal) fatal = err instanceof Error ? err : new Error(String(err))
+  }
+
+  if (fatal) throw fatal
+
+  const emptyCollection = { data: [] as any[] }
+  const valueAt = (i: number) =>
+    settled[i].status === 'fulfilled' ? (settled[i] as PromiseFulfilledResult<{ data: any[] }>).value : emptyCollection
+
+  const readiness = valueAt(0)
+  const sleep = valueAt(1)
+  const activity = valueAt(2)
+  const resilience = valueAt(3)
+  const sleepPeriods = valueAt(4)
+  const stress = valueAt(5)
+  const latestHeartRate =
+    settled[6].status === 'fulfilled' ? (settled[6] as PromiseFulfilledResult<number | null>).value : null
 
   const latestReadiness = pickForToday(readiness.data)
   const latestSleep = pickForToday(sleep.data)
@@ -235,6 +345,7 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
   const ac = latestActivity?.contributors
 
   return {
+    missingPermissions,
     readinessScore: latestReadiness?.score ?? null,
     sleepScore: latestSleep?.score ?? null,
     activityScore: latestActivity?.score ?? null,
@@ -292,11 +403,32 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
   }
 }
 
+/** Builds the message shown when the user deselected data categories on
+ *  Oura's consent screen. Oura Glance needs all of them, so this names the
+ *  exact permissions to re-enable when reconnecting. */
+export function missingPermissionsMessage(missing: string[]): string {
+  if (missing.length === 0) return ''
+  return (
+    `Oura Glance needs all permissions, but ${missing.join(' and ')} ` +
+    `${missing.length === 1 ? 'was' : 'were'} not granted. ` +
+    `Tap Reconnect and leave every box checked on Oura's approval screen.`
+  )
+}
+
 export async function testOuraConnection(config: OuraConfig): Promise<{ ok: boolean; message: string }> {
   try {
-    await fetchOuraData(config)
+    const result = await fetchOuraData(config)
+    if (result.missingPermissions.length > 0) {
+      return { ok: false, message: missingPermissionsMessage(result.missingPermissions) }
+    }
     return { ok: true, message: 'Connected to Oura API successfully.' }
   } catch (err) {
+    if (err instanceof OuraApiError && err.kind === 'membership') {
+      return {
+        ok: false,
+        message: 'Oura returned "access denied". This usually means the account has no active Oura Membership.',
+      }
+    }
     return { ok: false, message: err instanceof Error ? err.message : 'Unknown error connecting to Oura API.' }
   }
 }

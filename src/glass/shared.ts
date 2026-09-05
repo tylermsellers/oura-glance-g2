@@ -17,6 +17,8 @@ export interface OuraData {
   activityDetail: ActivityDetail | null
   connected: boolean
   error: string | null
+  /** Consent-screen labels for permissions the user declined, if any. */
+  missingPermissions: string[]
 }
 
 export interface AppSnapshot {

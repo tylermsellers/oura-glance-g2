@@ -21,6 +21,12 @@ function capitalize(v: string | null): string {
   return v.charAt(0).toUpperCase() + v.slice(1)
 }
 
+// "Core" data is the three metric scores the home screen is built around. If
+// none of them came back, there is nothing meaningful to display.
+function hasCoreData(oura: OuraData): boolean {
+  return oura.activityScore !== null || oura.sleepScore !== null || oura.readinessScore !== null
+}
+
 // The three metric rows are selectable and drill into their own detail screen.
 // Order matches the phone app + user preference: Activity, Sleep, Readiness.
 const METRIC_SCREENS = ['activity-detail', 'sleep-detail', 'readiness-detail'] as const
@@ -61,6 +67,22 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
           line('Not connected'),
           line('Open app on phone to'),
           line('connect with Oura'),
+        ],
+      }
+    }
+
+    // Only take over the whole screen when the missing permission actually
+    // left us with nothing to show. If, say, only Heart Rate was declined,
+    // the scores still render and the phone app carries the fix-it message --
+    // blanking the display there would throw away data the user did grant.
+    if (oura.missingPermissions.length > 0 && !hasCoreData(oura)) {
+      return {
+        lines: [
+          ...glassHeader('OURA', '! PERMISSIONS'),
+          line(''),
+          line('Missing access:'),
+          line(oura.missingPermissions.join(', ').slice(0, 40)),
+          line('Reconnect on phone'),
         ],
       }
     }
@@ -116,6 +138,7 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
   action(action, nav, snapshot) {
     const { oura } = snapshot
     if (!oura.connected || oura.error) return nav
+    if (oura.missingPermissions.length > 0 && !hasCoreData(oura)) return nav
 
     const { mode, offset } = NAV_MODE.decode(nav.highlightedIndex)
 
