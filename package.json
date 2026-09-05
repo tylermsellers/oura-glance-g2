@@ -22,6 +22,7 @@
     "upng-js": "^2.1.0"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.14",
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

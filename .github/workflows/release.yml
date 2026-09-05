@@ -1,0 +1,63 @@
+name: Release
+
+# Manual trigger only -- run from the Actions tab (or `gh workflow run release.yml`)
+# after bumping "version" in app.json. Builds, packs the .ehpk, tags, and
+# publishes a GitHub Release with the package attached -- no local machine needed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read app.json metadata
+        id: app
+        run: |
+          NAME=$(node -p "require('./app.json').name")
+          VERSION=$(node -p "require('./app.json').version")
+          SLUG=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -s ' ' '-')
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          echo "file=${SLUG}-${VERSION}.ehpk" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag doesn't already exist
+        run: |
+          if git rev-parse "v${{ steps.app.outputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ steps.app.outputs.version }} already exists. Bump the version in app.json before releasing."
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack .ehpk
+        run: npx evenhub pack app.json dist -o "${{ steps.app.outputs.file }}"
+
+      - name: Create tag
+        run: |
+          git tag "v${{ steps.app.outputs.version }}"
+          git push origin "v${{ steps.app.outputs.version }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.app.outputs.version }}
+          name: v${{ steps.app.outputs.version }}
+          files: ${{ steps.app.outputs.file }}
+          generate_release_notes: true
