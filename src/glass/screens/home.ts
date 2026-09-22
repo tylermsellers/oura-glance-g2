@@ -28,8 +28,9 @@ function hasCoreData(oura: OuraData): boolean {
 }
 
 // The three metric rows are selectable and drill into their own detail screen.
-// Order matches the phone app + user preference: Activity, Sleep, Readiness.
-const METRIC_SCREENS = ['activity-detail', 'sleep-detail', 'readiness-detail'] as const
+// Match Oura's dashboard order so the selected top ring maps directly to its
+// detail screen.
+const METRIC_SCREENS = ['readiness-detail', 'sleep-detail', 'activity-detail'] as const
 const METRIC_COUNT = METRIC_SCREENS.length
 
 // The stats block below the metric rows no longer fits the display (it grew
@@ -128,9 +129,9 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     return {
       lines: [
         ...glassHeader('OURA', 'Tap \u25b8 \u25bc Scroll'),
-        line(`Activity    ${scoreLabel(oura.activityScore)}`, 'normal', highlighted === 0),
+        line(`Readiness   ${scoreLabel(oura.readinessScore)}`, 'normal', highlighted === 0),
         line(`Sleep       ${scoreLabel(oura.sleepScore)}`, 'normal', highlighted === 1),
-        line(`Readiness   ${scoreLabel(oura.readinessScore)}`, 'normal', highlighted === 2),
+        line(`Activity    ${scoreLabel(oura.activityScore)}`, 'normal', highlighted === 2),
       ],
     }
   },
@@ -178,4 +179,3 @@ export const homeScreen: GlassScreen<AppSnapshot, AppActions> = {
     return nav
   },
 }
-

@@ -56,12 +56,10 @@ export const activityDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
     if (action.type === 'GO_BACK' || action.type === 'SELECT_HIGHLIGHTED') {
       return { ...nav, screen: 'home', highlightedIndex: 0 }
     }
-    // This screen's content (11 lines) doesn't fit the 7 visible content
-    // slots below the header, so a touchpad scroll gesture needs to move a
-    // scroll window through the content — reusing `highlightedIndex` as the
-    // scroll position, the same way home.ts uses it for tile selection.
     if (action.type === 'HIGHLIGHT_MOVE') {
-      const maxScroll = calcMaxScroll(buildContentLines(snapshot.oura).length, DEFAULT_CONTENT_SLOTS)
+      const maxScroll = snapshot.oura.activityDetail
+        ? 1
+        : calcMaxScroll(buildContentLines(snapshot.oura).length, DEFAULT_CONTENT_SLOTS)
       return { ...nav, highlightedIndex: moveHighlight(nav.highlightedIndex, action.direction, maxScroll) }
     }
     return nav

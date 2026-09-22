@@ -225,6 +225,12 @@ export interface SleepDetail {
   deepSleepMinutes: number | null // raw
   lightSleepMinutes: number | null // raw
   awakeMinutes: number | null // raw
+  totalSleepScore: number | null
+  efficiencyScore: number | null
+  restfulnessScore: number | null
+  remSleepScore: number | null
+  deepSleepScore: number | null
+  latencyScore: number | null
   timingScore: number | null
   restlessPeriods: number | null // raw
 }
@@ -377,6 +383,12 @@ export async function fetchOuraData(config: OuraConfig): Promise<OuraFetchResult
           deepSleepMinutes: secondsToMinutes(latestSleepPeriod?.deep_sleep_duration),
           lightSleepMinutes: secondsToMinutes(latestSleepPeriod?.light_sleep_duration),
           awakeMinutes: secondsToMinutes(latestSleepPeriod?.awake_time),
+          totalSleepScore: sc.total_sleep ?? null,
+          efficiencyScore: sc.efficiency ?? null,
+          restfulnessScore: sc.restfulness ?? null,
+          remSleepScore: sc.rem_sleep ?? null,
+          deepSleepScore: sc.deep_sleep ?? null,
+          latencyScore: sc.latency ?? null,
           timingScore: sc.timing ?? null,
           restlessPeriods: latestSleepPeriod?.restless_periods ?? null,
         }
