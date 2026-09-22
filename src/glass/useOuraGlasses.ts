@@ -1,10 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
-  ImageContainerProperty,
   ImageRawDataUpdate,
   OsEventTypeList,
-  RebuildPageContainer,
-  TextContainerProperty,
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import { EvenHubBridge } from 'even-toolkit/bridge'
@@ -13,16 +10,9 @@ import { activateKeepAlive, deactivateKeepAlive } from 'even-toolkit/keep-alive'
 import { renderTextPageLines, type GlassAction, type GlassNavState } from 'even-toolkit/types'
 import { onGlassAction, toDisplayData } from './selectors'
 import type { AppActions, AppSnapshot } from './shared'
-import { renderOuraDashboard } from './oura-dashboard'
-import { hasReadinessDetail, renderReadinessDetail } from './readiness-detail-image'
-import { hasSleepDetail, renderSleepDetail } from './sleep-detail-image'
-import { hasActivityDetail, renderActivityDetail } from './activity-detail-image'
-import { IMAGE_TILES, TILE_H, TILE_W, type RenderedTile } from './glass-image'
+import { renderOuraSummary, SUMMARY_TILE } from './oura-summary'
 
 const HOME_SCREEN = 'home'
-const READINESS_SCREEN = 'readiness-detail'
-const SLEEP_SCREEN = 'sleep-detail'
-const ACTIVITY_SCREEN = 'activity-detail'
 const METRIC_COUNT = 3
 
 function hasDashboardData(snapshot: AppSnapshot): boolean {
@@ -65,92 +55,21 @@ function eventToAction(event: EvenHubEvent): GlassAction | null {
   return null
 }
 
-/**
- * Every image screen shares one container layout, so moving between them only
- * needs new pixel data. Returns null for screens that fall back to text.
- */
-function imageScreenFor(
-  snapshot: AppSnapshot,
-  nav: GlassNavState,
-): { key: string; render: () => RenderedTile[] } | null {
-  if (nav.screen === HOME_SCREEN && hasDashboardData(snapshot)) {
-    const selection = ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
-    return {
-      key: `${HOME_SCREEN}:${selection}`,
-      render: () => renderOuraDashboard(snapshot, selection),
-    }
-  }
-  if (nav.screen === READINESS_SCREEN && hasReadinessDetail(snapshot.oura)) {
-    return { key: READINESS_SCREEN, render: () => renderReadinessDetail(snapshot.oura) }
-  }
-  if (nav.screen === SLEEP_SCREEN && hasSleepDetail(snapshot.oura)) {
-    const page = nav.highlightedIndex > 0 ? 1 : 0
-    return {
-      key: `${SLEEP_SCREEN}:${page}`,
-      render: () => renderSleepDetail(snapshot.oura, page),
-    }
-  }
-  if (nav.screen === ACTIVITY_SCREEN && hasActivityDetail(snapshot.oura)) {
-    const page = nav.highlightedIndex > 0 ? 1 : 0
-    return {
-      key: `${ACTIVITY_SCREEN}:${page}`,
-      render: () => renderActivityDetail(snapshot.oura, page),
-    }
-  }
-  return null
-}
+function homeText(snapshot: AppSnapshot, selection: number): string {
+  const { oura } = snapshot
+  const rows = [
+    ['Readiness', oura.readinessScore],
+    ['Sleep', oura.sleepScore],
+    ['Activity', oura.activityScore],
+  ] as const
 
-async function rebuildImageLayout(hub: EvenHubBridge) {
-  const bridge = hub.rawBridge
-  if (!bridge) return
-
-  // Move even-toolkit's managed page state away from the text page before
-  // applying the custom image layout. Without this, a later detail render is
-  // mistaken for a same-page partial text update and targets stale containers.
-  await hub.showHomePage(
-    ' ',
-    IMAGE_TILES.map((tile) => ({
-      id: tile.id,
-      name: tile.name,
-      x: tile.x,
-      y: tile.y,
-      w: TILE_W,
-      h: TILE_H,
-    })),
-  )
-
-  await bridge.rebuildPageContainer(
-    new RebuildPageContainer({
-      containerTotalNum: 1 + IMAGE_TILES.length,
-      textObject: [
-        new TextContainerProperty({
-          containerID: 1,
-          containerName: 'oura-events',
-          xPosition: 0,
-          yPosition: 0,
-          width: 576,
-          height: 288,
-          borderWidth: 0,
-          borderColor: 0,
-          borderRadius: 0,
-          paddingLength: 0,
-          content: ' ',
-          isEventCapture: 1,
-        }),
-      ],
-      imageObject: IMAGE_TILES.map(
-        (tile) =>
-          new ImageContainerProperty({
-            containerID: tile.id,
-            containerName: tile.name,
-            xPosition: tile.x,
-            yPosition: tile.y,
-            width: TILE_W,
-            height: TILE_H,
-          }),
-      ),
-    }),
-  )
+  return [
+    'OURA   Swipe: Select   Tap: Open',
+    ...rows.map(
+      ([label, score], index) =>
+        `${index === selection ? '>' : ' '} ${label.padEnd(10)} ${score ?? '--'}`,
+    ),
+  ].join('\n')
 }
 
 export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
@@ -162,10 +81,11 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let renderBusy = false
     let renderPending = false
-    let layout: 'image' | 'text' | null = null
+    let layout: 'home' | 'text' | null = null
     let lastSnapshotKey = ''
     let lastRenderedDataKey = ''
-    let tileHashes = new Map<number, number>()
+    let lastHomeText = ''
+    let summaryHash: number | null = null
     let lastActionKey = ''
     let lastActionTime = 0
 
@@ -188,34 +108,38 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
       try {
         const snapshot = getSnapshotRef.current()
         const nav = navRef.current
-        const imageScreen = imageScreenFor(snapshot, nav)
 
-        if (imageScreen) {
-          const dataKey = `${imageScreen.key}|${snapshotKey(snapshot)}`
-          const needsRebuild = layout !== 'image'
-          const needsTiles = needsRebuild || dataKey !== lastRenderedDataKey
+        if (nav.screen === HOME_SCREEN && hasDashboardData(snapshot)) {
+          const selection =
+            ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
+          const nextHomeText = homeText(snapshot, selection)
+          const dataKey = snapshotKey(snapshot)
+          const needsRebuild = layout !== 'home'
 
           if (needsRebuild) {
-            await rebuildImageLayout(hub)
-            tileHashes = new Map()
-            layout = 'image'
+            await hub.showHomePage(nextHomeText, [SUMMARY_TILE])
+            layout = 'home'
+            lastHomeText = nextHomeText
+            summaryHash = null
+          } else if (nextHomeText !== lastHomeText) {
+            await hub.updateHomeText(nextHomeText)
+            lastHomeText = nextHomeText
           }
 
-          if (needsTiles && hub.rawBridge) {
-            const tiles = imageScreen.render()
-            for (const tile of tiles) {
-              if (!needsRebuild && tileHashes.get(tile.id) === tile.hash) continue
+          if ((needsRebuild || dataKey !== lastRenderedDataKey) && hub.rawBridge) {
+            const summary = renderOuraSummary(snapshot)
+            if (summary.hash !== summaryHash) {
               await hub.rawBridge.updateImageRawData(
                 new ImageRawDataUpdate({
-                  containerID: tile.id,
-                  containerName: tile.name,
-                  imageData: tile.bytes,
+                  containerID: summary.id,
+                  containerName: summary.name,
+                  imageData: summary.bytes,
                 }),
               )
-              tileHashes.set(tile.id, tile.hash)
+              summaryHash = summary.hash
             }
-            lastRenderedDataKey = dataKey
           }
+          lastRenderedDataKey = dataKey
         } else {
           const content = renderTextPageLines(toDisplayData(snapshot, nav).lines)
           if (layout === 'text') {
@@ -225,6 +149,8 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
             layout = 'text'
           }
           lastRenderedDataKey = ''
+          lastHomeText = ''
+          summaryHash = null
         }
       } catch (error) {
         console.error('Failed to render Oura glasses UI', error)
@@ -243,12 +169,22 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
           return
         }
 
-        navRef.current = onGlassAction(
-          action,
-          navRef.current,
-          getSnapshotRef.current(),
-          actions,
-        )
+        if (navRef.current.screen === HOME_SCREEN && action.type === 'HIGHLIGHT_MOVE') {
+          const current =
+            ((navRef.current.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
+          const delta = action.direction === 'down' ? 1 : -1
+          navRef.current = {
+            ...navRef.current,
+            highlightedIndex: (current + delta + METRIC_COUNT) % METRIC_COUNT,
+          }
+        } else {
+          navRef.current = onGlassAction(
+            action,
+            navRef.current,
+            getSnapshotRef.current(),
+            actions,
+          )
+        }
         await render()
       })()
     }

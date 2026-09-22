@@ -57,9 +57,7 @@ export const activityDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
       return { ...nav, screen: 'home', highlightedIndex: 0 }
     }
     if (action.type === 'HIGHLIGHT_MOVE') {
-      const maxScroll = snapshot.oura.activityDetail
-        ? 1
-        : calcMaxScroll(buildContentLines(snapshot.oura).length, DEFAULT_CONTENT_SLOTS)
+      const maxScroll = calcMaxScroll(buildContentLines(snapshot.oura).length, DEFAULT_CONTENT_SLOTS)
       return { ...nav, highlightedIndex: moveHighlight(nav.highlightedIndex, action.direction, maxScroll) }
     }
     return nav
