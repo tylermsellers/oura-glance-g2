@@ -1,7 +1,50 @@
 // Graphical home dashboard: the three Oura score rings plus the active-calorie
 // gauge, styled after the phone app's home screen.
+import { encodeTilesBatch } from 'even-toolkit/png-utils'
 import type { AppSnapshot } from './shared'
-import { DISPLAY_W, INK, drawHeader, renderTiles, type RenderedTile } from './glass-image'
+import { DISPLAY_H, DISPLAY_W, INK, drawHeader, type RenderedTile } from './glass-image'
+
+const SCORE_TILE_W = DISPLAY_W / 3
+const TILE_H = DISPLAY_H / 2
+
+export const HOME_IMAGE_TILES = [
+  {
+    id: 20,
+    name: 'oura-ready',
+    x: 0,
+    y: 0,
+    w: SCORE_TILE_W,
+    h: TILE_H,
+    crop: { sx: 0, sy: 0, sw: SCORE_TILE_W, sh: TILE_H },
+  },
+  {
+    id: 21,
+    name: 'oura-sleep',
+    x: SCORE_TILE_W,
+    y: 0,
+    w: SCORE_TILE_W,
+    h: TILE_H,
+    crop: { sx: SCORE_TILE_W, sy: 0, sw: SCORE_TILE_W, sh: TILE_H },
+  },
+  {
+    id: 22,
+    name: 'oura-active',
+    x: SCORE_TILE_W * 2,
+    y: 0,
+    w: SCORE_TILE_W,
+    h: TILE_H,
+    crop: { sx: SCORE_TILE_W * 2, sy: 0, sw: SCORE_TILE_W, sh: TILE_H },
+  },
+  {
+    id: 23,
+    name: 'oura-cal',
+    x: 144,
+    y: TILE_H,
+    w: 288,
+    h: TILE_H,
+    crop: { sx: 144, sy: TILE_H, sw: 288, sh: TILE_H },
+  },
+] as const
 
 function scoreProgress(score: number | null): number {
   if (score === null) return 0
@@ -61,8 +104,8 @@ function drawCaloriesGauge(ctx: CanvasRenderingContext2D, snapshot: AppSnapshot)
       : 0
 
   const centerX = DISPLAY_W / 2
-  const centerY = 310
-  const radius = 165
+  const centerY = 305
+  const radius = 160
   const startAngle = Math.PI * 1.15
   const arcLength = Math.PI * 0.7
   const progressAngle = startAngle + arcLength * progress
@@ -110,12 +153,40 @@ function drawCaloriesGauge(ctx: CanvasRenderingContext2D, snapshot: AppSnapshot)
 }
 
 export function renderOuraDashboard(snapshot: AppSnapshot, selectedIndex: number): RenderedTile[] {
-  return renderTiles((ctx) => {
-    drawHeader(ctx, 'OURA', 'SWIPE TO SELECT   TAP TO OPEN')
+  const canvas = document.createElement('canvas')
+  canvas.width = DISPLAY_W
+  canvas.height = DISPLAY_H
 
-    drawScoreRing(ctx, 108, 'Readiness', snapshot.oura.readinessScore, selectedIndex === 0)
-    drawScoreRing(ctx, 288, 'Sleep', snapshot.oura.sleepScore, selectedIndex === 1)
-    drawScoreRing(ctx, 468, 'Activity', snapshot.oura.activityScore, selectedIndex === 2)
-    drawCaloriesGauge(ctx, snapshot)
-  })
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Unable to create glasses canvas')
+
+  ctx.fillStyle = '#000000'
+  ctx.fillRect(0, 0, DISPLAY_W, DISPLAY_H)
+
+  drawHeader(ctx, 'OURA', 'SWIPE TO SELECT   TAP TO OPEN')
+  drawScoreRing(ctx, 108, 'Readiness', snapshot.oura.readinessScore, selectedIndex === 0)
+  drawScoreRing(ctx, 288, 'Sleep', snapshot.oura.sleepScore, selectedIndex === 1)
+  drawScoreRing(ctx, 468, 'Activity', snapshot.oura.activityScore, selectedIndex === 2)
+  drawCaloriesGauge(ctx, snapshot)
+
+  const scoreTiles = encodeTilesBatch(
+    canvas,
+    HOME_IMAGE_TILES.slice(0, 3).map((tile) => ({ crop: tile.crop, name: tile.name })),
+    SCORE_TILE_W,
+    TILE_H,
+  )
+  const calorieTile = encodeTilesBatch(
+    canvas,
+    [{ crop: HOME_IMAGE_TILES[3].crop, name: HOME_IMAGE_TILES[3].name }],
+    HOME_IMAGE_TILES[3].w,
+    TILE_H,
+  )[0]!
+  const encoded = [...scoreTiles, calorieTile]
+
+  return HOME_IMAGE_TILES.map((tile, index) => ({
+    id: tile.id,
+    name: tile.name,
+    bytes: encoded[index]!.bytes,
+    hash: encoded[index]!.hash,
+  }))
 }
