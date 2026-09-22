@@ -101,7 +101,9 @@ function drawCalories(ctx: CanvasRenderingContext2D, snapshot: AppSnapshot): voi
   )
 }
 
-export function renderOuraSummary(snapshot: AppSnapshot): RenderedTile {
+export function renderCompactTile(
+  draw: (ctx: CanvasRenderingContext2D) => void,
+): RenderedTile {
   const canvas = document.createElement('canvas')
   canvas.width = SUMMARY_TILE.w
   canvas.height = SUMMARY_TILE.h
@@ -111,11 +113,7 @@ export function renderOuraSummary(snapshot: AppSnapshot): RenderedTile {
 
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  drawRing(ctx, 48, 'READINESS', snapshot.oura.readinessScore)
-  drawRing(ctx, 144, 'SLEEP', snapshot.oura.sleepScore)
-  drawRing(ctx, 240, 'ACTIVITY', snapshot.oura.activityScore)
-  drawCalories(ctx, snapshot)
+  draw(ctx)
 
   const [encoded] = encodeTilesBatch(
     canvas,
@@ -132,4 +130,13 @@ export function renderOuraSummary(snapshot: AppSnapshot): RenderedTile {
     bytes: encoded.bytes,
     hash: encoded.hash,
   }
+}
+
+export function renderOuraSummary(snapshot: AppSnapshot): RenderedTile {
+  return renderCompactTile((ctx) => {
+    drawRing(ctx, 48, 'READINESS', snapshot.oura.readinessScore)
+    drawRing(ctx, 144, 'SLEEP', snapshot.oura.sleepScore)
+    drawRing(ctx, 240, 'ACTIVITY', snapshot.oura.activityScore)
+    drawCalories(ctx, snapshot)
+  })
 }

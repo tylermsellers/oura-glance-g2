@@ -11,8 +11,19 @@ import { renderTextPageLines, type GlassAction, type GlassNavState } from 'even-
 import { onGlassAction, toDisplayData } from './selectors'
 import type { AppActions, AppSnapshot } from './shared'
 import { renderOuraSummary, SUMMARY_TILE } from './oura-summary'
+import {
+  renderCompactActivityDetails,
+  renderCompactActivityScore,
+  renderCompactReadiness,
+  renderCompactSleepDetails,
+  renderCompactSleepScore,
+} from './oura-compact-details'
+import type { RenderedTile } from './glass-image'
 
 const HOME_SCREEN = 'home'
+const READINESS_SCREEN = 'readiness-detail'
+const SLEEP_SCREEN = 'sleep-detail'
+const ACTIVITY_SCREEN = 'activity-detail'
 const METRIC_COUNT = 3
 
 function hasDashboardData(snapshot: AppSnapshot): boolean {
@@ -55,21 +66,53 @@ function eventToAction(event: EvenHubEvent): GlassAction | null {
   return null
 }
 
-function homeText(snapshot: AppSnapshot, selection: number): string {
-  const { oura } = snapshot
-  const rows = [
-    ['Readiness', oura.readinessScore],
-    ['Sleep', oura.sleepScore],
-    ['Activity', oura.activityScore],
-  ] as const
+interface CompactScreen {
+  key: string
+  footer: string
+  render: () => RenderedTile
+}
 
-  return [
-    'OURA   Swipe: Select   Tap: Open',
-    ...rows.map(
-      ([label, score], index) =>
-        `${index === selection ? '>' : ' '} ${label.padEnd(10)} ${score ?? '--'}`,
-    ),
-  ].join('\n')
+function compactScreenFor(snapshot: AppSnapshot, nav: GlassNavState): CompactScreen | null {
+  const { oura } = snapshot
+
+  if (nav.screen === HOME_SCREEN && hasDashboardData(snapshot)) {
+    const selection = ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
+    const labels = ['READINESS', 'SLEEP', 'ACTIVITY']
+    return {
+      key: HOME_SCREEN,
+      footer: `SELECTED: ${labels[selection]}\nSwipe: Select   Tap: Open`,
+      render: () => renderOuraSummary(snapshot),
+    }
+  }
+
+  if (nav.screen === READINESS_SCREEN && oura.readinessDetail) {
+    return {
+      key: READINESS_SCREEN,
+      footer: 'READINESS\nTap: Back',
+      render: () => renderCompactReadiness(oura),
+    }
+  }
+
+  if (nav.screen === SLEEP_SCREEN && oura.sleepDetail) {
+    const page = nav.highlightedIndex > 0 ? 1 : 0
+    return {
+      key: `${SLEEP_SCREEN}:${page}`,
+      footer: `SLEEP ${page + 1}/2\nSwipe: More   Tap: Back`,
+      render: () => page === 0 ? renderCompactSleepScore(oura) : renderCompactSleepDetails(oura),
+    }
+  }
+
+  if (nav.screen === ACTIVITY_SCREEN && oura.activityDetail) {
+    const page = nav.highlightedIndex > 0 ? 1 : 0
+    return {
+      key: `${ACTIVITY_SCREEN}:${page}`,
+      footer: `ACTIVITY ${page + 1}/2\nSwipe: More   Tap: Back`,
+      render: () =>
+        page === 0 ? renderCompactActivityScore(oura) : renderCompactActivityDetails(oura),
+    }
+  }
+
+  return null
 }
 
 export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
@@ -81,7 +124,7 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let renderBusy = false
     let renderPending = false
-    let layout: 'home' | 'text' | null = null
+    let layout: 'compact' | 'text' | null = null
     let lastSnapshotKey = ''
     let lastRenderedDataKey = ''
     let lastHomeText = ''
@@ -108,26 +151,24 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
       try {
         const snapshot = getSnapshotRef.current()
         const nav = navRef.current
+        const compactScreen = compactScreenFor(snapshot, nav)
 
-        if (nav.screen === HOME_SCREEN && hasDashboardData(snapshot)) {
-          const selection =
-            ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
-          const nextHomeText = homeText(snapshot, selection)
-          const dataKey = snapshotKey(snapshot)
-          const needsRebuild = layout !== 'home'
+        if (compactScreen) {
+          const dataKey = `${compactScreen.key}|${snapshotKey(snapshot)}`
+          const needsRebuild = layout !== 'compact'
 
           if (needsRebuild) {
-            await hub.showHomePage(nextHomeText, [SUMMARY_TILE])
-            layout = 'home'
-            lastHomeText = nextHomeText
+            await hub.showHomePage(compactScreen.footer, [SUMMARY_TILE])
+            layout = 'compact'
+            lastHomeText = compactScreen.footer
             summaryHash = null
-          } else if (nextHomeText !== lastHomeText) {
-            await hub.updateHomeText(nextHomeText)
-            lastHomeText = nextHomeText
+          } else if (compactScreen.footer !== lastHomeText) {
+            await hub.updateHomeText(compactScreen.footer)
+            lastHomeText = compactScreen.footer
           }
 
           if ((needsRebuild || dataKey !== lastRenderedDataKey) && hub.rawBridge) {
-            const summary = renderOuraSummary(snapshot)
+            const summary = compactScreen.render()
             if (summary.hash !== summaryHash) {
               await hub.rawBridge.updateImageRawData(
                 new ImageRawDataUpdate({
@@ -177,6 +218,22 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
             ...navRef.current,
             highlightedIndex: (current + delta + METRIC_COUNT) % METRIC_COUNT,
           }
+        } else if (
+          (navRef.current.screen === SLEEP_SCREEN ||
+            navRef.current.screen === ACTIVITY_SCREEN) &&
+          action.type === 'HIGHLIGHT_MOVE'
+        ) {
+          const current = navRef.current.highlightedIndex > 0 ? 1 : 0
+          navRef.current = {
+            ...navRef.current,
+            highlightedIndex:
+              action.direction === 'down' ? Math.min(1, current + 1) : Math.max(0, current - 1),
+          }
+        } else if (
+          navRef.current.screen === READINESS_SCREEN &&
+          action.type === 'HIGHLIGHT_MOVE'
+        ) {
+          return
         } else {
           navRef.current = onGlassAction(
             action,
