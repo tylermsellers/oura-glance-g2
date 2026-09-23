@@ -37,7 +37,7 @@ function renderContributors(oura: OuraData): RenderedTile[] {
   const d = oura.activityDetail
 
   return renderTiles((ctx) => {
-    drawHeader(ctx, 'ACTIVITY', 'SWIPE: DETAILS   TAP: BACK')
+    drawHeader(ctx, 'ACTIVITY', 'SWIPE: DETAILS   DOUBLE TAP: BACK')
     const blockEnd = drawScore(ctx, oura.activityScore, SCORE_BASELINE)
     const metricsLeft = Math.max(blockEnd + 24, 170)
     const column = (DISPLAY_W - EDGE_X - metricsLeft) / 3
@@ -151,7 +151,7 @@ function renderDetails(oura: OuraData): RenderedTile[] {
   )
 
   return renderTiles((ctx) => {
-    drawHeader(ctx, 'ACTIVITY DETAILS', 'SWIPE: SCORE   TAP: BACK')
+    drawHeader(ctx, 'ACTIVITY DETAILS', 'SWIPE: SCORE   DOUBLE TAP: BACK')
 
     drawGoal(
       ctx,

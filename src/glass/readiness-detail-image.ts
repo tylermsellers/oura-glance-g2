@@ -43,7 +43,7 @@ export function renderReadinessDetail(oura: OuraData): RenderedTile[] {
   const units = loadUnitSystem()
 
   return renderTiles((ctx) => {
-    drawHeader(ctx, 'READINESS', 'TAP: BACK')
+    drawHeader(ctx, 'READINESS', 'DOUBLE TAP: BACK')
 
     const blockEnd = drawScore(ctx, oura.readinessScore ?? null, SCORE_BASELINE)
 

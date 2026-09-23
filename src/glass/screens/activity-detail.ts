@@ -43,7 +43,7 @@ export const activityDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
     const { oura } = snapshot
     return buildScrollableContent({
       title: `ACTIVITY  ${oura.activityScore ?? '--'}`,
-      actionBar: 'Tap: Back',
+      actionBar: 'Double tap: Back',
       contentLines: buildContentLines(oura),
       scrollPos: nav.highlightedIndex,
       // Preserve the plain (non-dimmed) line style this screen used before
@@ -53,7 +53,7 @@ export const activityDetailScreen: GlassScreen<AppSnapshot, AppActions> = {
   },
 
   action(action, nav, snapshot) {
-    if (action.type === 'GO_BACK' || action.type === 'SELECT_HIGHLIGHTED') {
+    if (action.type === 'GO_BACK') {
       return { ...nav, screen: 'home', highlightedIndex: 0 }
     }
     if (action.type === 'HIGHLIGHT_MOVE') {

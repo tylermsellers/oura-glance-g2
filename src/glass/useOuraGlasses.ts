@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import {
   ImageContainerProperty,
   ImageRawDataUpdate,
+  ImageRawDataUpdateResult,
   OsEventTypeList,
   RebuildPageContainer,
   TextContainerProperty,
@@ -13,7 +14,7 @@ import { activateKeepAlive, deactivateKeepAlive } from 'even-toolkit/keep-alive'
 import { renderTextPageLines, type GlassAction, type GlassNavState } from 'even-toolkit/types'
 import { onGlassAction, toDisplayData } from './selectors'
 import type { AppActions, AppSnapshot } from './shared'
-import { HOME_IMAGE_TILES, renderOuraDashboard } from './oura-dashboard'
+import { renderOuraDashboard } from './oura-dashboard'
 import { hasReadinessDetail, renderReadinessDetail } from './readiness-detail-image'
 import { hasSleepDetail, renderSleepDetail } from './sleep-detail-image'
 import { hasActivityDetail, renderActivityDetail } from './activity-detail-image'
@@ -25,6 +26,7 @@ const READINESS_SCREEN = 'readiness-detail'
 const SLEEP_SCREEN = 'sleep-detail'
 const ACTIVITY_SCREEN = 'activity-detail'
 const METRIC_COUNT = 3
+const IMAGE_SEND_CONCURRENCY = 2
 
 function hasDashboardData(snapshot: AppSnapshot): boolean {
   const { oura } = snapshot
@@ -77,12 +79,10 @@ interface ImageTileLayout {
 
 interface ImageScreen {
   key: string
-  layout: 'home' | 'detail'
-  tiles: readonly ImageTileLayout[]
   render: () => RenderedTile[]
 }
 
-const DETAIL_IMAGE_TILES: readonly ImageTileLayout[] = IMAGE_TILES.map((tile) => ({
+const IMAGE_LAYOUT: readonly ImageTileLayout[] = IMAGE_TILES.map((tile) => ({
   id: tile.id,
   name: tile.name,
   x: tile.x,
@@ -98,8 +98,6 @@ function imageScreenFor(snapshot: AppSnapshot, nav: GlassNavState): ImageScreen 
     const selection = ((nav.highlightedIndex % METRIC_COUNT) + METRIC_COUNT) % METRIC_COUNT
     return {
       key: `${HOME_SCREEN}:${selection}`,
-      layout: 'home',
-      tiles: HOME_IMAGE_TILES,
       render: () => renderOuraDashboard(snapshot, selection),
     }
   }
@@ -107,8 +105,6 @@ function imageScreenFor(snapshot: AppSnapshot, nav: GlassNavState): ImageScreen 
   if (nav.screen === READINESS_SCREEN && hasReadinessDetail(oura)) {
     return {
       key: READINESS_SCREEN,
-      layout: 'detail',
-      tiles: DETAIL_IMAGE_TILES,
       render: () => renderReadinessDetail(oura),
     }
   }
@@ -117,8 +113,6 @@ function imageScreenFor(snapshot: AppSnapshot, nav: GlassNavState): ImageScreen 
     const page = nav.highlightedIndex > 0 ? 1 : 0
     return {
       key: `${SLEEP_SCREEN}:${page}`,
-      layout: 'detail',
-      tiles: DETAIL_IMAGE_TILES,
       render: () => renderSleepDetail(oura, page),
     }
   }
@@ -127,8 +121,6 @@ function imageScreenFor(snapshot: AppSnapshot, nav: GlassNavState): ImageScreen 
     const page = nav.highlightedIndex > 0 ? 1 : 0
     return {
       key: `${ACTIVITY_SCREEN}:${page}`,
-      layout: 'detail',
-      tiles: DETAIL_IMAGE_TILES,
       render: () => renderActivityDetail(oura, page),
     }
   }
@@ -136,14 +128,14 @@ function imageScreenFor(snapshot: AppSnapshot, nav: GlassNavState): ImageScreen 
   return null
 }
 
-async function rebuildImageLayout(hub: EvenHubBridge, tiles: readonly ImageTileLayout[]) {
+async function rebuildImageLayout(hub: EvenHubBridge) {
   const bridge = hub.rawBridge
   if (!bridge) return
 
-  await hub.showHomePage(' ', [...tiles])
+  await hub.showHomePage(' ', [...IMAGE_LAYOUT])
   await bridge.rebuildPageContainer(
     new RebuildPageContainer({
-      containerTotalNum: 1 + tiles.length,
+      containerTotalNum: 1 + IMAGE_LAYOUT.length,
       textObject: [
         new TextContainerProperty({
           containerID: 1,
@@ -160,7 +152,7 @@ async function rebuildImageLayout(hub: EvenHubBridge, tiles: readonly ImageTileL
           isEventCapture: 1,
         }),
       ],
-      imageObject: tiles.map(
+      imageObject: IMAGE_LAYOUT.map(
         (tile) =>
           new ImageContainerProperty({
             containerID: tile.id,
@@ -175,6 +167,42 @@ async function rebuildImageLayout(hub: EvenHubBridge, tiles: readonly ImageTileL
   )
 }
 
+async function sendTileBatch(
+  hub: EvenHubBridge,
+  tiles: RenderedTile[],
+  tileHashes: Map<number, number>,
+  force: boolean,
+): Promise<void> {
+  const bridge = hub.rawBridge
+  if (!bridge) return
+
+  const changed = tiles.filter((tile) => force || tileHashes.get(tile.id) !== tile.hash)
+  for (let index = 0; index < changed.length; index += IMAGE_SEND_CONCURRENCY) {
+    const pair = changed.slice(index, index + IMAGE_SEND_CONCURRENCY)
+    const results = await Promise.allSettled(
+      pair.map(async (tile) => {
+        const startedAt = performance.now()
+        const result = await bridge.updateImageRawData(
+          new ImageRawDataUpdate({
+            containerID: tile.id,
+            containerName: tile.name,
+            imageData: tile.bytes,
+          }),
+        )
+        if (!ImageRawDataUpdateResult.isSuccess(result)) {
+          throw new Error(`${tile.name} image update failed: ${result}`)
+        }
+        tileHashes.set(tile.id, tile.hash)
+        console.info(
+          `[Oura glasses] ${tile.name} updated in ${Math.round(performance.now() - startedAt)}ms`,
+        )
+      }),
+    )
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failure) throw failure.reason
+  }
+}
+
 export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
   const getSnapshotRef = useRef(getSnapshot)
   getSnapshotRef.current = getSnapshot
@@ -184,7 +212,7 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let renderBusy = false
     let renderPending = false
-    let layout: 'home' | 'detail' | 'text' | null = null
+    let layout: 'image' | 'text' | null = null
     let lastSnapshotKey = ''
     let lastRenderedDataKey = ''
     let tileHashes = new Map<number, number>()
@@ -214,27 +242,17 @@ export function useOuraGlasses(getSnapshot: () => AppSnapshot) {
 
         if (imageScreen) {
           const dataKey = `${imageScreen.key}|${snapshotKey(snapshot)}`
-          const needsRebuild = layout !== imageScreen.layout
+          const needsRebuild = layout !== 'image'
 
           if (needsRebuild) {
-            await rebuildImageLayout(hub, imageScreen.tiles)
-            layout = imageScreen.layout
+            await rebuildImageLayout(hub)
+            layout = 'image'
             tileHashes = new Map()
           }
 
           if ((needsRebuild || dataKey !== lastRenderedDataKey) && hub.rawBridge) {
             const tiles = imageScreen.render()
-            for (const tile of tiles) {
-              if (!needsRebuild && tileHashes.get(tile.id) === tile.hash) continue
-              await hub.rawBridge.updateImageRawData(
-                new ImageRawDataUpdate({
-                  containerID: tile.id,
-                  containerName: tile.name,
-                  imageData: tile.bytes,
-                }),
-              )
-              tileHashes.set(tile.id, tile.hash)
-            }
+            await sendTileBatch(hub, tiles, tileHashes, needsRebuild)
           }
           lastRenderedDataKey = dataKey
         } else {

@@ -44,6 +44,34 @@ export const INK = {
 
 export const EDGE_X = 18
 
+const FOUR_LEVEL_PALETTE = [0, 64, 160, 255] as const
+
+function quantizeFourLevels(ctx: CanvasRenderingContext2D): void {
+  const image = ctx.getImageData(0, 0, DISPLAY_W, DISPLAY_H)
+  const pixels = image.data
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    const intensity = Math.round(
+      (pixels[index]! * 299 + pixels[index + 1]! * 587 + pixels[index + 2]! * 114) / 1000,
+    )
+    let nearest: number = FOUR_LEVEL_PALETTE[0]
+    let distance = Math.abs(intensity - nearest)
+    for (const candidate of FOUR_LEVEL_PALETTE.slice(1)) {
+      const nextDistance = Math.abs(intensity - candidate)
+      if (nextDistance < distance) {
+        nearest = candidate
+        distance = nextDistance
+      }
+    }
+    pixels[index] = nearest
+    pixels[index + 1] = nearest
+    pixels[index + 2] = nearest
+    pixels[index + 3] = 255
+  }
+
+  ctx.putImageData(image, 0, 0)
+}
+
 /** Draws a full-screen design and slices it into the four G2 image tiles. */
 export function renderTiles(draw: (ctx: CanvasRenderingContext2D) => void): RenderedTile[] {
   const canvas = document.createElement('canvas')
@@ -56,6 +84,7 @@ export function renderTiles(draw: (ctx: CanvasRenderingContext2D) => void): Rend
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, DISPLAY_W, DISPLAY_H)
   draw(ctx)
+  quantizeFourLevels(ctx)
 
   const encoded = encodeTilesBatch(
     canvas,

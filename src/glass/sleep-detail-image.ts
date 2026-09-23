@@ -37,7 +37,7 @@ function renderContributors(oura: OuraData): RenderedTile[] {
   const d = oura.sleepDetail
 
   return renderTiles((ctx) => {
-    drawHeader(ctx, 'SLEEP', 'SWIPE: DETAILS   TAP: BACK')
+    drawHeader(ctx, 'SLEEP', 'SWIPE: DETAILS   DOUBLE TAP: BACK')
     const blockEnd = drawScore(ctx, oura.sleepScore, SCORE_BASELINE)
     const metricsLeft = Math.max(blockEnd + 24, 170)
     const column = (DISPLAY_W - EDGE_X - metricsLeft) / 3
@@ -111,7 +111,7 @@ function renderDetails(oura: OuraData): RenderedTile[] {
   const total = d?.totalSleepMinutes
 
   return renderTiles((ctx) => {
-    drawHeader(ctx, 'SLEEP DETAILS', 'SWIPE: SCORE   TAP: BACK')
+    drawHeader(ctx, 'SLEEP DETAILS', 'SWIPE: SCORE   DOUBLE TAP: BACK')
 
     ctx.fillStyle = INK.dim
     ctx.font = '500 11px Arial, sans-serif'
