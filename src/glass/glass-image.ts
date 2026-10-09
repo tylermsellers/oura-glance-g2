@@ -1,9 +1,9 @@
 // Shared canvas helpers for the image-rendered glasses screens.
 //
-// The G2 SDK caps an image container at 288x144, so a full-screen (576x288)
-// design is drawn on one offscreen canvas and then split into four tiles that
-// tile the display. Every image screen uses the same four containers, which
-// means switching between them only needs new pixel data — no page rebuild.
+// The physical G2 caps image containers at 288x144, so a full-screen (576x288)
+// design is drawn on one offscreen canvas and split into four quadrants. Every
+// image screen uses the same containers, so switching screens only sends
+// changed pixel data without rebuilding the page.
 import { encodeTilesBatch } from 'even-toolkit/png-utils'
 
 export const DISPLAY_W = 576

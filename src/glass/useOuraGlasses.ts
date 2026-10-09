@@ -26,7 +26,6 @@ const READINESS_SCREEN = 'readiness-detail'
 const SLEEP_SCREEN = 'sleep-detail'
 const ACTIVITY_SCREEN = 'activity-detail'
 const METRIC_COUNT = 3
-const IMAGE_SEND_CONCURRENCY = 2
 
 function hasDashboardData(snapshot: AppSnapshot): boolean {
   const { oura } = snapshot
@@ -177,29 +176,22 @@ async function sendTileBatch(
   if (!bridge) return
 
   const changed = tiles.filter((tile) => force || tileHashes.get(tile.id) !== tile.hash)
-  for (let index = 0; index < changed.length; index += IMAGE_SEND_CONCURRENCY) {
-    const pair = changed.slice(index, index + IMAGE_SEND_CONCURRENCY)
-    const results = await Promise.allSettled(
-      pair.map(async (tile) => {
-        const startedAt = performance.now()
-        const result = await bridge.updateImageRawData(
-          new ImageRawDataUpdate({
-            containerID: tile.id,
-            containerName: tile.name,
-            imageData: tile.bytes,
-          }),
-        )
-        if (!ImageRawDataUpdateResult.isSuccess(result)) {
-          throw new Error(`${tile.name} image update failed: ${result}`)
-        }
-        tileHashes.set(tile.id, tile.hash)
-        console.info(
-          `[Oura glasses] ${tile.name} updated in ${Math.round(performance.now() - startedAt)}ms`,
-        )
+  for (const tile of changed) {
+    const startedAt = performance.now()
+    const result = await bridge.updateImageRawData(
+      new ImageRawDataUpdate({
+        containerID: tile.id,
+        containerName: tile.name,
+        imageData: tile.bytes,
       }),
     )
-    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-    if (failure) throw failure.reason
+    if (!ImageRawDataUpdateResult.isSuccess(result)) {
+      throw new Error(`${tile.name} image update failed: ${result}`)
+    }
+    tileHashes.set(tile.id, tile.hash)
+    console.info(
+      `[Oura glasses] ${tile.name} updated in ${Math.round(performance.now() - startedAt)}ms`,
+    )
   }
 }
 
